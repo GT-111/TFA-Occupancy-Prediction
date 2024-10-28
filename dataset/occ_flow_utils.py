@@ -6,13 +6,12 @@ class GridMap():
         self.map_size = (config.dataset.grid_size_x, config.dataset.grid_size_y)
         self.x_range = (0, config.dataset.spatial_window)
         self.y_range = (-80, 80)
-        # self.map = np.zeros([config.dataset.temporal_window, *self.map_size])
-        # self.flow = np.zeros([config.dataset.temporal_window, *self.map_size, 2])
         self.grid_size_x = (self.x_range[1] - self.x_range[0]) / self.map_size[0]
         self.grid_size_y = (self.y_range[1] - self.y_range[0]) / self.map_size[1]
         # number of agent points per side to describe the agent's occupancy
         self.agent_points_per_side_length = config.preprocess.agent_points_per_side_length
         self.agent_points_per_side_width =config.preprocess.agent_points_per_side_width
+        self.his_len = config.dataset.his_len
         
     @ DeprecationWarning
     def load_data(self, data):
@@ -195,27 +194,9 @@ class GridMap():
         
         return vehicle_points
 
-
-    
-    def get_map_flow(self, data):
-        num_of_agents = data['x_position'].shape[0]
-        num_time_steps = data['x_position'].shape[1]
-        if num_of_agents == 0:
-            return  np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size, 2])
-        timestamp = data['timestamp']
+    def get_map(self, num_of_agents, num_time_steps, timestamp, vehicle_grids):
         
-        vehicle_points = self.get_agents_points(data)
-        num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
-        vehicle_points = vehicle_points.reshape(num_of_agents, num_time_steps, self.agent_points_per_side_length * self.agent_points_per_side_width, 2)
-        # map the vehicles points to the grid map
-        grid_size = np.array((self.grid_size_x, self.grid_size_y))
-        if np.isnan(vehicle_points).any() or np.isinf(vehicle_points).any():
-        # Handle invalid values
-            vehicle_points = np.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
-
-        vehicle_grids = np.floor(vehicle_points / grid_size).astype(int)
-        # Calculate the occupancy map
-        map = np.zeros([num_of_agents, num_time_steps, *self.map_size], dtype=np.float16)
+        occupancy_map = np.zeros([num_of_agents, num_time_steps, *self.map_size], dtype=np.float16)
         # map = np.repeat(map[None, ...], num_of_agents, axis=0)
        # Extract valid indices from the valid_mask
         valid_agent_indices, valid_time_indices = np.where(timestamp > 0)  # Shape: (N_valid,), (N_valid,)
@@ -236,12 +217,13 @@ class GridMap():
         agent_indices_repeated = agent_indices_repeated[valid_mask]
         time_indices_repeated = time_indices_repeated[valid_mask]
         # Assign 1s to the map using advanced indexing
-        map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = 1
-        # Sum the map across agents
-        map = np.sum(map, axis=0)
+        occupancy_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = 1
         
-        flow = np.zeros([num_of_agents, num_time_steps, *self.map_size, 2])
-        # flow = np.repeat(flow[None, ...], num_of_agents, axis=0)
+        return np.sum(occupancy_map, axis=0)
+    
+    def get_flow(self, num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids):
+        
+        flow_map = np.zeros([num_of_agents, num_time_steps, *self.map_size, 2])
         timestamp_shifted = np.roll(timestamp, shift=1, axis=1)
         valid_mask = (timestamp > 0) & (timestamp_shifted > 0)
         # get the first valid time index
@@ -268,7 +250,46 @@ class GridMap():
       
         agent_indices_repeated = agent_indices_repeated[valid_mask]
         time_indices_repeated = time_indices_repeated[valid_mask]
-        flow[agent_indices_repeated, time_indices_repeated, grid_x[valid_mask], grid_y[valid_mask]] = vehicle_points_masked.reshape(-1, 2)[valid_mask]
-        flow = np.sum(flow, axis=0)
+        flow_map[agent_indices_repeated, time_indices_repeated, grid_x[valid_mask], grid_y[valid_mask]] = vehicle_points_masked.reshape(-1, 2)[valid_mask]
+ 
+        return np.sum(flow_map, axis=0)
+    
+    def get_map_flow(self, data):
+        num_of_agents = data['x_position'].shape[0]
+        num_time_steps = data['x_position'].shape[1]
+        if num_of_agents == 0:
+            return  np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size, 2])
+        timestamp = data['timestamp']
+        
+        vehicle_points = self.get_agents_points(data)
+        num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
+        vehicle_points = vehicle_points.reshape(num_of_agents, num_time_steps, self.agent_points_per_side_length * self.agent_points_per_side_width, 2)
+        if np.isnan(vehicle_points).any() or np.isinf(vehicle_points).any():
+        # Handle invalid values
+            vehicle_points = np.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
+
+        vehicle_grids = np.floor(vehicle_points / np.array((self.grid_size_x, self.grid_size_y))).astype(int)
+        
+        # Calculate the occupancy map
+        occluded_idx = np.argmax((timestamp > 0), axis=1) > self.his_len
+        num_of_agents_occluded = np.sum(occluded_idx)
+        num_of_agents_observed = num_of_agents - num_of_agents_occluded
+        
+        occluded_occupancy_map = self.get_map(num_of_agents_occluded, num_time_steps, timestamp[occluded_idx], vehicle_grids[occluded_idx])
+        observed_occupancy_map = self.get_map(num_of_agents_observed, num_time_steps, timestamp[~occluded_idx], vehicle_grids[~occluded_idx])
+        # Calculate the flow map
+        flow_map = self.get_flow(num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids)
+        
+        
                     
-        return map, flow
+        # return occluded_occupancy_map, observed_occupancy_map, flow_map
+        return  occluded_occupancy_map, observed_occupancy_map, flow_map
+    
+    
+# Test
+# if __name__ == '__main__':
+#     from utils.file_utils import get_config
+#     config = get_config()
+#     grid_map = GridMap(config)
+#     test_data = np.load('/hdd/HetianGuo/I24/processed_data/scene_20.npy', allow_pickle=True).item()
+#     occ_map, obs_map ,flow_map = grid_map.get_map_flow(test_data['cur'])

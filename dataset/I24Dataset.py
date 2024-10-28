@@ -11,8 +11,9 @@ class I24Dataset(Dataset):
         self.data_files = get_npy_files(config.dataset.processed_data)
         
     def add_occ_flow(self, feature_dic):
-        occ_map, flow_map = self.grid_map.get_map_flow(feature_dic)
-        feature_dic['occupancy_map'] = occ_map
+        occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map.get_map_flow(feature_dic)
+        feature_dic['occluded_occupancy_map'] = occluded_occupancy_map
+        feature_dic['observed_occupancy_map'] = observed_occupancy_map
         feature_dic['flow_map'] = flow_map
         return feature_dic 
     
@@ -34,7 +35,7 @@ class I24Dataset(Dataset):
 
                     feature_dic[dic_k + '/state/his/' + k] = v[:, :his_len]
                     feature_dic[dic_k + '/state/pred/' + k] = v[: his_len: his_len + pred_len]
-                elif k in ['occupancy_map', 'flow_map']:
+                elif k in ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']:
                     # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
                     feature_dic[dic_k + '/state/his/' + k] = v[:his_len,...]
                     feature_dic[dic_k + '/state/pred/' + k] = v[his_len: his_len + pred_len,...]
@@ -45,3 +46,5 @@ class I24Dataset(Dataset):
                     feature_dic[dic_k + '/meta/' + k] = v
             
         return feature_dic
+    
+    

@@ -72,7 +72,7 @@ def process_batch(batch_list):
                 #   'height', 
                   'class', 
                   'direction']
-    state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occupancy_map', 'flow_map']
+    state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_keys = []
     meta_scalar_keys = []
     meta_array_keys = []
