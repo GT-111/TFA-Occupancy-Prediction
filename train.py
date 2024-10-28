@@ -19,7 +19,7 @@ dataset_config = get_config()
 with open('./waymo_ofp.config', 'r') as f:
     config_text = f.read()
     text_format.Parse(config_text, config)
-asasasass
+
 # loss weights
 ogm_weight  = 1000.0
 occ_weight  = 1000.0
