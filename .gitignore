@@ -1,0 +1,5 @@
+/processed_data/
+/raw_data/
+/auxiliary_data/
+__pycache__/
+*.pyc
