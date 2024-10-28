@@ -2,7 +2,7 @@
     "paths":{
         "raw_data":  "./raw_data",
         "auxiliary_data": "./auxiliary_data/",
-        "processed_data" : "/hdd/HetianGuo/I24/processed_data/"
+        "processed_data" : "./processed_data/"
     },
     "preprocess":{
         "data_sample_frequency": 25,
@@ -16,7 +16,7 @@
         "agent_points_per_side_width": 32
     },
     "dataset":{
-        "processed_data": "/hdd/HetianGuo/I24/processed_data/",
+        "processed_data": "/hdd/HetianGuo/I24/processed_data/63858a2cfb3ff533c12df166.parquet",
         "grid_size_x": 256,
         "grid_size_y": 128,
         "temporal_window" : 125,

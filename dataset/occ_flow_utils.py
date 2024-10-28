@@ -287,9 +287,9 @@ class GridMap():
     
     
 # Test
-# if __name__ == '__main__':
-#     from utils.file_utils import get_config
-#     config = get_config()
-#     grid_map = GridMap(config)
-#     test_data = np.load('/hdd/HetianGuo/I24/processed_data/scene_20.npy', allow_pickle=True).item()
-#     occ_map, obs_map ,flow_map = grid_map.get_map_flow(test_data['cur'])
+if __name__ == '__main__':
+    from utils.file_utils import get_config
+    config = get_config()
+    grid_map = GridMap(config)
+    test_data = np.load('/hdd/HetianGuo/I24/processed_data/scene_20.npy', allow_pickle=True).item()
+    occ_map, obs_map ,flow_map = grid_map.get_map_flow(test_data['cur'])

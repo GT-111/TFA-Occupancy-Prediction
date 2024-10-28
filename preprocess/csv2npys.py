@@ -59,6 +59,7 @@ def get_feature_dics(idx_list):
     
 def get_feature_dic(scene_data, idx):
     spatial_start, spatial_end, temporal_start, temporal_end = idx2range(idx)
+    scene_data = scene_data[(scene_data['x_position'].between(spatial_start, spatial_end))]
     vehicles_num = scene_data['_id'].nunique()
     vehicles_id = scene_data['_id'].unique()
     vehicles_id_dic = {_id: i - 1 for i, _id in enumerate(vehicles_id)}
@@ -163,13 +164,13 @@ def process_idx(idx):
     # Save the feature dictionary
     np.save(f'{config.paths.processed_data}/scene_{idx}', result_dic)
 
-# Number of threads to use
+# # Number of threads to use
 num_threads = 16
 
 # Create ThreadPoolExecutor to parallelize the processing of idx
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress
     list(tqdm(executor.map(process_idx, range(total_len)), total=total_len))
-    
-    
+
+
     
