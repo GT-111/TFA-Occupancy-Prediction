@@ -145,7 +145,7 @@ class GridMap():
         width = data['width'].reshape(-1, 1)
         yaw_angle = data['yaw_angle']
         x_centers = data['x_position']
-        y_centers = data['y_position']
+        y_centers = data['y_position'] + self.y_range[1]  # Shift y to the positive range
         centers = np.stack([x_centers, y_centers], axis=-1)  # Shape: (num_agents, T, 2)
     
         num_of_agents = x_centers.shape[0]
