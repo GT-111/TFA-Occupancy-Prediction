@@ -117,10 +117,10 @@ def process_batch(batch_list):
     return input_dict
 
 def collate_fn(batch_list):
-    batch_size = len(batch_list)
-    
+
+    batch_size = len(batch_list)    
     feature_dic = process_batch([_ for _ in batch_list])
-    # cur_num_vehicles = [len(batch_list[bs_idx]['cur/meta/num_vehicles']) for bs_idx in range(batch_size)]
+
     batch_dict = {'batch_size': batch_size,
                   'feature_dic': feature_dic}
                   
@@ -135,4 +135,25 @@ def get_dataset(config):
 def get_dataloader(config):
     
     dataset = get_dataset(config)
-    return DataLoader(dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
+    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
+    
+    train_dataloader = DataLoader(train_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
+    
+    return train_dataloader, val_dataloader, test_dataloader
+
+
+def get_train_val_test_dataset(dataset, config):
+    
+    train_ratio = config.dataset.train_ratio
+    val_ratio = config.dataset.val_ratio
+    test_ratio = config.dataset.test_ratio
+    
+    train_size = int(len(dataset) * train_ratio)
+    val_size = int(len(dataset) * val_ratio)
+    test_size = len(dataset) - train_size - val_size
+    
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+    
+    return train_dataset, val_dataset, test_dataset

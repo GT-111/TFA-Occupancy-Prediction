@@ -25,6 +25,9 @@
         "pred_len": 80,
         "batch_size": 20,
         "num_workers": 16,
+        "train_ratio": 0.8,
+        "val_ratio": 0.1,
+        "test_ratio": 0.1,
         "shuffle": false
     }
     

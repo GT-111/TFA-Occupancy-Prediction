@@ -46,5 +46,4 @@ class I24Dataset(Dataset):
                     feature_dic[dic_k + '/meta/' + k] = v
             
         return feature_dic
-    
-    
+

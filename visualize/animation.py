@@ -177,10 +177,10 @@ def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True
             U_masked, V_masked = flow_map[frame, ..., 0][mask], flow_map[frame,..., 1][mask]
             return ax.quiver(X_masked, Y_masked, U_masked, V_masked,
                              angles='xy', scale_units='xy', scale=0.25, width = 0.005, color='black', alpha=0.5)
-
-        quiver_prv = create_quiver(axes[0], prv_scene_flow_map, X, Y)
-        quiver_cur = create_quiver(axes[1], cur_scene_flow_map, X, Y)
-        quiver_nxt = create_quiver(axes[2], nxt_scene_flow_map, X, Y)
+        if vis_flow:
+            quiver_prv = create_quiver(axes[0], prv_scene_flow_map, X, Y)
+            quiver_cur = create_quiver(axes[1], cur_scene_flow_map, X, Y)
+            quiver_nxt = create_quiver(axes[2], nxt_scene_flow_map, X, Y)
         for ax in axes:
             for road_line_y in road_lines_y:
                 y_coord = road_line_y * grid_size_y / 160 + grid_size_y / 2
@@ -189,13 +189,22 @@ def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True
                     colors='black', linewidth=1
                 )
         #
-        return [quiver_prv, quiver_cur, quiver_nxt]
+        if vis_flow:
+            return [quiver_prv, quiver_cur, quiver_nxt]
+        else:
+            return [img_prv_occ_ogm, img_cur_occ_ogm, img_nxt_occ_ogm, img_prv_obs_ogm, img_cur_obs_ogm, img_nxt_obs_ogm, flow_rendered_prv, flow_rendered_cur, flow_rendered_nex]
 
     # Create the animation
 
     ani = animation.FuncAnimation(fig, update, frames=num_time_steps, interval=50, blit=True)
 
     # Save the animation without padding or extra margins
+    if vis_occ:
+        name = name + '_occ'
+    if vis_flow:
+        name = name + '_flow'
+    if vis_optical_flow:
+        name = name + '_optical_flow'
     ani.save(name + '.mp4', writer='ffmpeg', fps=20, dpi=300)
 
 
@@ -207,21 +216,4 @@ if __name__ == '__main__':
     grid_size_y = config.dataset.grid_size_y
     name = "scene_19915"
     test_data = np.load(config.dataset.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-
-    config = get_config()
-    files = []
-    for i in range(20000):
-        file_name = config.dataset.processed_data + '/scene_{}.npy'.format(i)
-        test_data = np.load(file_name, allow_pickle=True).item()
-        prv_data_dic = test_data['prv']
-        cur_data_dic = test_data['cur']
-        nxt_data_dic = test_data['nxt']
-        # print(test_data['cur']['direction'])
-        # if cur_data_dic['direction'] has 1 and -1
-        if 1 in cur_data_dic['direction'] and -1 in cur_data_dic['direction']:
-            num = np.sum(cur_data_dic['direction'] == 1)
-            num_r = np.sum(cur_data_dic['direction'] == -1)
-            if num > 5 and num_r > 5:
-                files.append(file_name)
-                print(f'{file_name} has {num} cars going forward and {num_r} cars going backward')
-    visualize(test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=True)
+    visualize(test_data, name, vis_occ=False, vis_flow=True, vis_optical_flow=False)
