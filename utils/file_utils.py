@@ -25,3 +25,12 @@ def get_config (config_file = './config.json'):
     with open(config_file) as f:
         config = edict.EasyDict(json.load(f))
     return config
+
+def get_last_checkpoint(checkpoint_path = './checkpoints'):
+    files = []
+    for root, _, file in os.walk(checkpoint_path):
+        for f in file:
+            if f.endswith('.pth'):
+                files.append(os.path.join(root, f))
+    files.sort()
+    return files[-1] if len(files) > 0 else None

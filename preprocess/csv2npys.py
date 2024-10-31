@@ -1,14 +1,14 @@
 import pandas as pd
 import numpy as np
 from utils.file_utils import get_config
-from dataset.occ_flow_utils import GridMap
+from utils.occ_flow_utils import GridMap
 from tqdm import tqdm
 
 config = get_config()
 
 grid_map = GridMap(config)
-start_pos = config.preprocess.start_pos * 5280
-end_pos = config.preprocess.end_pos * 5280  # mile to feet
+start_pos = config.data_attr.start_pos * 5280
+end_pos = config.data_attr.end_pos * 5280  # mile to feet
 data_df = pd.read_parquet(config.dataset.processed_data)
 print('loaded data')
 x_min = max(data_df['x_position'].min(), start_pos)

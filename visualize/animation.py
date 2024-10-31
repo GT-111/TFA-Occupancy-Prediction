@@ -1,5 +1,5 @@
 from utils.file_utils import get_config
-from dataset.occ_flow_utils import GridMap
+from utils.occ_flow_utils import GridMap
 from dataset.I24Dataset import I24Dataset
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation

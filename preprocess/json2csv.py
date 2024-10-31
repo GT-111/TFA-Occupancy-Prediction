@@ -58,7 +58,7 @@ def process_record(record, start_time_stamp, keys_to_use):
     
     record_dic['timestamp'] = (record_dic['timestamp'] - start_time_stamp)
     
-    record_dic['timestamp'] = np.round((record_dic['timestamp'] - record_dic['timestamp'][0] % (1 / config.preprocess.data_sample_frequency)) * config.preprocess.data_sample_frequency)
+    record_dic['timestamp'] = np.round((record_dic['timestamp'] - record_dic['timestamp'][0] % (1 / config.data_attr.data_sample_frequency)) * config.data_attr.data_sample_frequency)
     record_df = pd.DataFrame(record_dic, columns=keys_to_use).set_index('timestamp')
     
     record_df = record_df.reindex(pd.RangeIndex(start=record_df.index.min(), stop=record_df.index.max() + 1))

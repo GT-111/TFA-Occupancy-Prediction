@@ -1,20 +1,11 @@
 import numpy as np
 import torch
-import torchvision.ops as ops
 import torch.nn.functional as F
-
+from utils.metrics_utils import sample
 from waymo_open_dataset.protos import occupancy_flow_metrics_pb2
 from google.protobuf import text_format
-
-from sklearn import metrics
-
-import core.utils.occupancy_flow_grids as occupancy_flow_grids
-
 from typing import Dict
-
-from core.utils.occu_metric import sample
 from functools import partial
-
 from torchmetrics.classification import BinaryAveragePrecision
 from torchmetrics.functional.classification import binary_average_precision
 

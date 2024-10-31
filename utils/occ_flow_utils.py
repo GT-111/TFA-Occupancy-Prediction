@@ -3,7 +3,7 @@ import numpy as np
 class GridMap():
     def __init__(self, config):
         self.data_sample_frequency = 25
-        self.map_size = (config.dataset.grid_size_x, config.dataset.grid_size_y)
+        self.map_size = (config.occ_flow_map.grid_size_x, config.occ_flow_map.grid_size_y)
         self.x_range = (0, config.dataset.spatial_window)
         self.y_range = (-80, 80)
         self.grid_size_x = (self.x_range[1] - self.x_range[0]) / self.map_size[0]

@@ -117,32 +117,13 @@ def process_batch(batch_list):
     return input_dict
 
 def collate_fn(batch_list):
-
-    batch_size = len(batch_list)    
-    feature_dic = process_batch([_ for _ in batch_list])
-
-    batch_dict = {'batch_size': batch_size,
-                  'feature_dic': feature_dic}
-                  
     
-    return batch_dict
+    return process_batch([_ for _ in batch_list])
 
 
 def get_dataset(config):
     dataset = I24Dataset(config)
     return dataset
-
-def get_dataloader(config):
-    
-    dataset = get_dataset(config)
-    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
-    
-    train_dataloader = DataLoader(train_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
-    val_dataloader = DataLoader(val_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
-    test_dataloader = DataLoader(test_dataset, batch_size=config.dataset.batch_size, shuffle=config.dataset.shuffle, collate_fn=collate_fn, num_workers=config.dataset.num_workers)
-    
-    return train_dataloader, val_dataloader, test_dataloader
-
 
 def get_train_val_test_dataset(dataset, config):
     
@@ -157,3 +138,16 @@ def get_train_val_test_dataset(dataset, config):
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
     
     return train_dataset, val_dataset, test_dataset
+
+def get_dataloader(config):
+    
+    dataset = get_dataset(config)
+    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
+    
+    train_dataloader = DataLoader(train_dataset, batch_size=config.dataloader.batch_size, shuffle=config.dataloader.shuffle, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.dataloader.batch_size, shuffle=config.dataloader.shuffle, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.dataloader.batch_size, shuffle=config.dataloader.shuffle, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    
+    return train_dataloader, val_dataloader, test_dataloader
+
+

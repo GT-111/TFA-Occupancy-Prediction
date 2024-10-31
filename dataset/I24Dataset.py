@@ -1,5 +1,5 @@
 from utils.file_utils import get_npy_files
-from dataset.occ_flow_utils import GridMap
+from utils.occ_flow_utils import GridMap
 import typing
 import numpy as np
 from torch.utils.data import Dataset
@@ -8,7 +8,7 @@ class I24Dataset(Dataset):
     def __init__(self, config):
         self.config = config
         self.grid_map = GridMap(config)
-        self.data_files = get_npy_files(config.dataset.processed_data)
+        self.data_files = get_npy_files(config.paths.processed_data)
         
     def add_occ_flow(self, feature_dic):
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map.get_map_flow(feature_dic)
@@ -24,8 +24,8 @@ class I24Dataset(Dataset):
         data_dic = np.load(self.data_files[idx], allow_pickle=True).item()
         
         # Create the feature dictionary to save
-        his_len = self.config.dataset.his_len
-        pred_len = self.config.dataset.pred_len
+        his_len = self.config.task.his_len
+        pred_len = self.config.task.pred_len
         feature_dic = typing.DefaultDict(dict)
         for dic_k, dic in data_dic.items():
             dic = self.add_occ_flow(dic)

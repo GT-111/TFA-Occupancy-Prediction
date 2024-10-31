@@ -2,35 +2,55 @@
     "paths":{
         "raw_data":  "./raw_data",
         "auxiliary_data": "./auxiliary_data/",
-        "processed_data" : "./processed_data/"
+        "processed_data" : "./processed_data/",
+        "checkpoints": "./checkpoints/",
+        "logs": "./logs/"
+    },
+    "data_attr":{
+        "data_sample_frequency": 25,
+        "start_pos": 58.5,
+        "end_pos": 63.5
     },
     "preprocess":{
-        "data_sample_frequency": 25,
         "spatial_stride": 250, 
         "spatial_window": 250,
         "temporal_stride": 120, 
         "temporal_window": 120,
-        "start_pos": 58.5,
-        "end_pos": 63.5,
         "agent_points_per_side_length":80,
         "agent_points_per_side_width": 32
     },
-    "dataset":{
-        "processed_data": "./processed_data",
+    "occ_flow_map":{
         "grid_size_x": 256,
-        "grid_size_y": 128,
-        "temporal_window" : 125,
-        "spatial_window" : 250,
-        "his_len": 40,
-        "pred_len": 80,
-        "batch_size": 20,
-        "num_workers": 16,
+        "grid_size_y": 128
+    },
+    "dataset":{
         "train_ratio": 0.8,
         "val_ratio": 0.1,
-        "test_ratio": 0.1,
+        "test_ratio": 0.1
+    },
+    "dataloader":{
+        "num_workers": 16,
+        "batch_size": 20,
         "shuffle": false
+    },
+    "task":{
+        "his_len": 40,
+        "pred_len": 80,
+        "num_waypoints": 8
+    },
+    "training": {
+        "checkpoint_interval": 1,
+        "num_epochs": 20,
+        "optimizer" :{
+            "lr": 0.001,
+            "weight_decay": 0.0001
+        },
+        "scheduler":{
+            "step_size": 5,
+            "gamma": 0.1
+        }
+
     }
-    
 
 
 

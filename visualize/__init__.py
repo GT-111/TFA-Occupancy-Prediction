@@ -1,1 +1,1 @@
-from utils.file_utils import *
+from animation import *
