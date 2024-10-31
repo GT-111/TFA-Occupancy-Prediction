@@ -38,7 +38,7 @@ NUM_PRED_CHANNELS = 4
 
 class OGMFlow_loss():
 
-    def __init__(self, config, ogm_weight=1000.0,occ_weight=1000.0,flow_weight=1.0,replica=1.0,flow_origin_weight=1000.0,no_use_warp=False,use_pred=False,
+    def __init__(self, config, ogm_weight=1000.0,occ_weight=1000.0,flow_weight=1.0,flow_origin_weight=1000.0,replica=1.0,no_use_warp=False,use_pred=False,
     use_focal_loss=True,use_gt=False):
 
         self.config = config
@@ -60,17 +60,20 @@ class OGMFlow_loss():
         pass
 
     def __call__(self,
-        pred_waypoint_logits: occupancy_flow_grids.WaypointGrids,
-        true_waypoints:occupancy_flow_grids.WaypointGrids,
-        curr_ogm:torch.Tensor,
+        pred_observed_occupancy_logits,
+        pred_occluded_occupancy_logits,
+        pred_flow_logits,
+        gt_observed_occupancy_logits,
+        gt_occluded_occupancy_logits,
+        gt_flow_logits,
+        flow_origin_occupancy,
+        
 
     ) -> Dict[str, torch.Tensor]:
         """Loss function.
 
         Args:
-            config: OccupancyFlowTaskConfig proto message.
-            true_waypoints: Ground truth labels.
-            pred_waypoint_logits: Predicted occupancy logits and flows.
+            
 
         Returns:
             A dict containing different loss tensors:
@@ -79,7 +82,7 @@ class OGMFlow_loss():
             flow: Flow loss.
         """
 
-        device = pred_waypoint_logits.vehicles.observed_occupancy[0].device
+        device = flow_origin_occupancy.device
 
         loss_dict = {}
         # Store loss tensors for each waypoint and average at the end.
@@ -90,54 +93,50 @@ class OGMFlow_loss():
 
 
         #Preparation for flow warping:
-        h = torch.arange(0, self.config.grid_height_cells, dtype=torch.float32, device=device)
-        w = torch.arange(0, self.config.grid_width_cells, dtype=torch.float32, device=device)
+        h = torch.arange(0, self.config.occ_flow_map.grid_size_y, dtype=torch.float32, device=device)
+        w = torch.arange(0, self.config.occ_flow_map.grid_size_x, dtype=torch.float32, device=device)
         h_idx, w_idx = torch.meshgrid(h, w, 
             indexing="xy")
         # These indices map each (x, y) location to (x, y).
         # [height, width, 2] but storing x, y coordinates.
         identity_indices = torch.stack(
             (
-                w_idx.T,
-                h_idx.T,
+                w_idx,
+                h_idx,
+                
             ),dim=-1)
         identity_indices = identity_indices.detach()
-
+        print(identity_indices.shape)
         # Iterate over waypoints.
         # flow_origin_occupancy = curr_ogm[:,128:128+256,128:128+256,tf.newaxis]
-        n_waypoints = self.config.num_waypoints
+        n_waypoints = self.config.task.num_waypoints
         has_true_observed_occupancy = {-1: True}
         has_true_occluded_occupancy = {-1: True}
         true_obs_cnt,true_occ_cnt,true_flow_cnt = [],[],[]
         f_c = []
         for k in range(n_waypoints):
             # Occupancy cross-entropy loss.
-            pred_observed_occupancy_logit = (
-                pred_waypoint_logits.vehicles.observed_occupancy[k])
-            pred_occluded_occupancy_logit = (
-                pred_waypoint_logits.vehicles.occluded_occupancy[k])
-            pred_flow = pred_waypoint_logits.vehicles.flow[k]
+            pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
+            pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
+            pred_flow = pred_flow_logits[:,k]
 
-            true_observed_occupancy = true_waypoints.vehicles.observed_occupancy[k]
-            true_occluded_occupancy = true_waypoints.vehicles.occluded_occupancy[k]
-        
-            true_flow = true_waypoints.vehicles.flow[k]
-
+            true_observed_occupancy = gt_observed_occupancy_logits[:,k]
+            true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
+            true_flow = gt_flow_logits[:,k]
   
             # Accumulate over waypoints.
             loss_dict['observed_xe'].append(
                 self._sigmoid_xe_loss(
                     true_occupancy=true_observed_occupancy,
-                    pred_occupancy=pred_observed_occupancy_logit,
+                    pred_occupancy=pred_observed_occupancy,
                     loss_weight=self.ogm_weight)) 
             loss_dict['occluded_xe'].append(
                 self._sigmoid_occ_loss(
                     true_occupancy=true_occluded_occupancy,
-                    pred_occupancy=pred_occluded_occupancy_logit,
+                    pred_occupancy=pred_occluded_occupancy,
                     loss_weight=self.occ_weight))
             
             true_all_occupancy = torch.clamp(true_observed_occupancy + true_occluded_occupancy, 0, 1)
-            flow_origin_occupancy = true_waypoints.vehicles.flow_origin_occupancy[k]
             if self.use_gt:
                 warped_indices = identity_indices + true_flow
                 wp_org = sample(
@@ -162,7 +161,7 @@ class OGMFlow_loss():
                 )
                 if self.use_pred:
                     loss_dict['flow_warp_xe'].append(res*self._sigmoid_xe_warp_loss_pred(true_all_occupancy,
-                pred_observed_occupancy_logit, pred_occluded_occupancy_logit, wp_origin,
+                pred_observed_occupancy, pred_occluded_occupancy, wp_origin,
                 loss_weight=self.flow_origin_weight))
                 else:
                     loss_dict['flow_warp_xe'].append(res*self._sigmoid_xe_warp_loss(true_all_occupancy,
@@ -320,51 +319,39 @@ class OGMFlow_loss():
         image_shape = input_tensor.size()
         return torch.reshape(input_tensor, [*image_shape[0:1], -1])
 
-def test_loss():
 
+from utils.file_utils import get_config
 
-    dummy_pred_waypoint_logits = occupancy_flow_grids.WaypointGrids()
-    dummy_true_waypoints = occupancy_flow_grids.WaypointGrids()
-    np.random.seed(42)
-    for _ in range(8):
-        dummy_pred_waypoint_logits.vehicles.observed_occupancy.append(
-            torch.tensor(np.random.logistic(size=(1,256,256,1))).to(torch.float32))
-        dummy_pred_waypoint_logits.vehicles.occluded_occupancy.append(
-            torch.tensor(np.random.logistic(size=(1,256,256,1))).to(torch.float32))
-        dummy_pred_waypoint_logits.vehicles.flow.append(torch.tensor(np.random.uniform(size=(1,256,256,2))).to(torch.float32))
-
-        dummy_true_waypoints.vehicles.observed_occupancy.append(
-            torch.tensor(np.random.randint(2, size=(1,256,256,1))).to(torch.float32))
-        dummy_true_waypoints.vehicles.occluded_occupancy.append(
-            torch.tensor(np.random.randint(2, size=(1,256,256,1))).to(torch.float32))
-        dummy_true_waypoints.vehicles.flow.append(torch.tensor(np.random.uniform(size=(1,256,256,2))).to(torch.float32))
-        dummy_true_waypoints.vehicles.flow_origin_occupancy.append(
-            torch.tensor(np.random.randint(2, size=(1,256,256,1))).to(torch.float32))
-
-
-    config = occupancy_flow_metrics_pb2.OccupancyFlowTaskConfig()
-    config_text = """
-    num_past_steps: 10
-    num_future_steps: 80
-    num_waypoints: 8
-    cumulative_waypoints: false
-    normalize_sdc_yaw: true
-    grid_height_cells: 256
-    grid_width_cells: 256
-    sdc_y_in_grid: 192
-    sdc_x_in_grid: 128
-    pixels_per_meter: 3.2
-    agent_points_per_side_length: 48
-    agent_points_per_side_width: 16
-    """
-    text_format.Parse(config_text, config)
-
+def test_loss(config):
+    his_len = config.task.his_len
+    pred_len = config.task.pred_len
+    batch_size = config.dataloader.batch_size
+    grid_size_x = config.occ_flow_map.grid_size_x
+    grid_size_y = config.occ_flow_map.grid_size_y
+    num_waypoints = config.task.num_waypoints
+    
+    dummy_pred_observed_occupancy = cur_ogm = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 1))
+    dummy_pred_occluded_occupancy = torch.rand((batch_size, num_waypoints,  grid_size_x, grid_size_y, 1))
+    dummy_pred_flow = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 2))
+    
+    dummy_gt_observed_occupancy = cur_ogm = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 1))
+    dummy_gt_occluded_occupancy = torch.rand((batch_size, num_waypoints,  grid_size_x, grid_size_y, 1))
+    dummy_gt_flow = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 2))
+    flow_origin_occupancy = torch.rand((batch_size, grid_size_x, grid_size_y, 1))
+    # pred_observed_occupancy_logits,
+    # pred_occluded_occupancy_logits,
+    # pred_flow_logits,
+    # gt_observed_occupancy_logits,
+    # gt_occluded_occupancy_logits,
+    # gt_flow_logits,
+    # flow_origin_occupancy,
 
     loss_fn = OGMFlow_loss(config, replica=1, no_use_warp=False, use_pred=False, use_gt=True, use_focal_loss=True)
 
-    values = loss_fn(true_waypoints=dummy_true_waypoints,pred_waypoint_logits=dummy_pred_waypoint_logits,curr_ogm=None)
+    values = loss_fn(dummy_pred_observed_occupancy, dummy_pred_occluded_occupancy, dummy_pred_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
     print(values)
 
 
 if __name__ == "__main__":
-    test_loss()
+    config = get_config("./config.json")
+    test_loss(config)

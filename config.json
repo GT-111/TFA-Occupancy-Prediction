@@ -48,6 +48,10 @@
         "scheduler":{
             "step_size": 5,
             "gamma": 0.1
+        },
+        "loss":{
+            "loss_type": "L2",
+            "loss_weight": 1.0
         }
 
     }

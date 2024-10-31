@@ -1,7 +1,7 @@
 import torch
 from typing import List
 from torchmetrics.functional.classification import binary_average_precision
-
+from utils.metrics_utils import sample
 
 
 
@@ -241,8 +241,8 @@ def _flow_warp(
 
   device = pred_waypoints.vehicles.flow[0].device
 
-  h = torch.arange(0, config.grid_height_cells, dtype=torch.float32, device=device)
-  w = torch.arange(0, config.grid_width_cells, dtype=torch.float32, device=device)
+  h = torch.arange(0, config.occ_flow_map.grid_size_y, dtype=torch.float32, device=device)
+  w = torch.arange(0, config.occ_flow_map.grid_size_x, dtype=torch.float32, device=device)
   h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
   # These indices map each (x, y) location to (x, y).
   # [height, width, 2] but storing x, y coordinates.
