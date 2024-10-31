@@ -1,16 +1,21 @@
 import torch
 from typing import List
 from torchmetrics.functional.classification import binary_average_precision
-from utils.metrics_utils import sample
+from utils.metrics_utils import sample, _mean
 
 
 
 def compute_occupancy_flow_metrics(
-    config: occupancy_flow_metrics_pb2.OccupancyFlowTaskConfig,
-    true_waypoints: occupancy_flow_grids.WaypointGrids,
-    pred_waypoints: occupancy_flow_grids.WaypointGrids,
+    config,
+    pred_observed_occupancy_logits,
+    pred_occluded_occupancy_logits,
+    pred_flow_logits,
+    gt_observed_occupancy_logits,
+    gt_occluded_occupancy_logits,
+    gt_flow_logits,
+    flow_origin_occupancy,
     no_warp: bool=False
-) -> occupancy_flow_metrics_pb2.OccupancyFlowMetrics:
+):
   """Computes occupancy (observed, occluded) and flow metrics.
 
   Args:
@@ -42,18 +47,18 @@ def compute_occupancy_flow_metrics(
   if not no_warp:
     warped_flow_origins = _flow_warp(
         config=config,
-        true_waypoints=true_waypoints,
-        pred_waypoints=pred_waypoints,
+        pred_flow_logits=pred_flow_logits,
+        flow_origin_occupancy=flow_origin_occupancy,
     )
 
   # Iterate over waypoints.
   for k in range(config.num_waypoints):
-    true_observed_occupancy = true_waypoints.vehicles.observed_occupancy[k]
-    pred_observed_occupancy = pred_waypoints.vehicles.observed_occupancy[k]
-    true_occluded_occupancy = true_waypoints.vehicles.occluded_occupancy[k]
-    pred_occluded_occupancy = pred_waypoints.vehicles.occluded_occupancy[k]
-    true_flow = true_waypoints.vehicles.flow[k]
-    pred_flow = pred_waypoints.vehicles.flow[k]
+    pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
+    pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
+    pred_flow = pred_flow_logits[:,k]
+    true_observed_occupancy = gt_observed_occupancy_logits[:,k]
+    true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
+    true_flow = gt_flow_logits[:,k]
 
     # adding this CAUSE DISTRIBUTE ERROR!!!!
     # has_true_observed_occupancy[k] = tf.reduce_max(true_observed_occupancy) > 0
@@ -108,18 +113,9 @@ def compute_occupancy_flow_metrics(
                                         true_all_occupancy))
 
   # Compute means and return as proto message.
-  metrics = occupancy_flow_metrics_pb2.OccupancyFlowMetrics()
-  metrics.vehicles_observed_auc = _mean(metrics_dict['vehicles_observed_auc'])
-  metrics.vehicles_occluded_auc = _mean(metrics_dict['vehicles_occluded_auc'])
-  metrics.vehicles_observed_iou = _mean(metrics_dict['vehicles_observed_iou'])
-  metrics.vehicles_occluded_iou = _mean(metrics_dict['vehicles_occluded_iou'])
-  metrics.vehicles_flow_epe = _mean(metrics_dict['vehicles_flow_epe'])
-  if not no_warp:
-    metrics.vehicles_flow_warped_occupancy_auc = _mean(
-        metrics_dict['vehicles_flow_warped_occupancy_auc'])
-    metrics.vehicles_flow_warped_occupancy_iou = _mean(
-        metrics_dict['vehicles_flow_warped_occupancy_iou'])
-  return metrics #, metrics_dict
+  metrics_dict = {k: _mean(v) for k, v in metrics_dict.items()}
+    
+  return metrics_dict
 
 
 def _compute_occupancy_auc(
@@ -191,13 +187,6 @@ def _compute_flow_epe(
   )
   flow_exists = flow_exists.to(torch.float32)
 
-  # Check shapes.
-#   tf.debugging.assert_shapes([
-#       (true_flow_dx, ['batch_size', 'height', 'width', 1]),
-#       (true_flow_dy, ['batch_size', 'height', 'width', 1]),
-#       (diff, ['batch_size', 'height', 'width', 2]),
-#   ])
-
   diff = diff * flow_exists
   # [batch_size, height, width, 1]
   epe = torch.linalg.norm(diff, ord=2, dim=-1, keepdim=True)
@@ -210,19 +199,13 @@ def _compute_flow_epe(
             sum_epe,
             sum_flow_exists), posinf=0, neginf=0)
 
-#   tf.debugging.assert_shapes([
-#       (epe, ['batch_size', 'height', 'width', 1]),
-#       (sum_epe, []),
-#       (mean_epe, []),
-#   ])
-
   return mean_epe
 
 
 def _flow_warp(
-    config: occupancy_flow_metrics_pb2.OccupancyFlowTaskConfig,
-    true_waypoints: occupancy_flow_grids.WaypointGrids,
-    pred_waypoints: occupancy_flow_grids.WaypointGrids,
+    config,
+    pred_flow_logits,
+    flow_origin_occupancy,
 ) -> List[torch.Tensor]:
   """Warps ground-truth flow-origin occupancies according to predicted flows.
 
@@ -239,7 +222,7 @@ def _flow_warp(
       [batch_size, height, width, 1] tensors.
   """
 
-  device = pred_waypoints.vehicles.flow[0].device
+  device = flow_origin_occupancy.device
 
   h = torch.arange(0, config.occ_flow_map.grid_size_y, dtype=torch.float32, device=device)
   w = torch.arange(0, config.occ_flow_map.grid_size_x, dtype=torch.float32, device=device)
@@ -248,8 +231,8 @@ def _flow_warp(
   # [height, width, 2] but storing x, y coordinates.
   identity_indices = torch.stack(
       (
-          w_idx.T,
-          h_idx.T,
+          w_idx,
+          h_idx,
       ),
       dim=-1,
   )
@@ -257,9 +240,8 @@ def _flow_warp(
   warped_flow_origins = []
   for k in range(config.num_waypoints):
     # [batch_size, height, width, 1]
-    flow_origin_occupancy = true_waypoints.vehicles.flow_origin_occupancy[k]
     # [batch_size, height, width, 2]
-    pred_flow = pred_waypoints.vehicles.flow[k]
+    pred_flow = pred_flow_logits[:, k]
     # Shifting the identity grid indices according to predicted flow tells us
     # the source (origin) grid cell for each flow vector.  We simply sample
     # occupancy values from these locations.
