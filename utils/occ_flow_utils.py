@@ -4,14 +4,14 @@ class GridMap():
     def __init__(self, config):
         self.data_sample_frequency = 25
         self.map_size = (config.occ_flow_map.grid_size_x, config.occ_flow_map.grid_size_y)
-        self.x_range = (0, config.dataset.spatial_window)
+        self.x_range = (0, config.preprocess.spatial_window)
         self.y_range = (-80, 80)
         self.grid_size_x = (self.x_range[1] - self.x_range[0]) / self.map_size[0]
         self.grid_size_y = (self.y_range[1] - self.y_range[0]) / self.map_size[1]
         # number of agent points per side to describe the agent's occupancy
         self.agent_points_per_side_length = config.preprocess.agent_points_per_side_length
         self.agent_points_per_side_width =config.preprocess.agent_points_per_side_width
-        self.his_len = config.dataset.his_len
+        self.his_len = config.task.his_len
         
     @ DeprecationWarning
     def load_data(self, data):

@@ -1,13 +1,11 @@
-import numpy as np
 import torch
 import torch.nn.functional as F
 from utils.metrics_utils import sample
-from waymo_open_dataset.protos import occupancy_flow_metrics_pb2
 from google.protobuf import text_format
 from typing import Dict
 from functools import partial
-from torchmetrics.classification import BinaryAveragePrecision
 from torchmetrics.functional.classification import binary_average_precision
+from utils.file_utils import get_config
 
 def sigmoid_focal_loss(
     inputs: torch.Tensor,
@@ -34,7 +32,6 @@ def sigmoid_focal_loss(
 def batch_binary_cross_entropy(input, target):
     return torch.mean(F.binary_cross_entropy(input=input, target=target, reduction="none"), dim=-1)
 
-NUM_PRED_CHANNELS = 4
 
 class OGMFlow_loss():
 
@@ -319,8 +316,6 @@ class OGMFlow_loss():
         image_shape = input_tensor.size()
         return torch.reshape(input_tensor, [*image_shape[0:1], -1])
 
-
-from utils.file_utils import get_config
 
 def test_loss(config):
     his_len = config.task.his_len
