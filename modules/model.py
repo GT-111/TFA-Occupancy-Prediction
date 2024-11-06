@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchinfo import summary
 import enum
-config = get_config()
 
+config = get_config()
 class ResamplingType(enum.Enum):
   NEAREST = 0
   BILINEAR = 1
@@ -1493,7 +1493,7 @@ class SwinTransformerEncoder(torch.nn.Module):
 
         # split image into non-overlapping patches
         self.patch_embed_vecicle = PatchEmbed(
-            img_size=img_size, patch_size=patch_size, in_chans=config.dataset.his_len, embed_dim=embed_dim,
+            img_size=img_size, patch_size=patch_size, in_chans=config.task.his_len, embed_dim=embed_dim,
             norm_layer=norm_layer if self.patch_norm else None)
             
         self.sep_encode=sep_encode
@@ -1678,40 +1678,39 @@ class OFMPNet(torch.nn.Module):
     def forward(self,input_dic,map_img,training=True,obs=None,occ=None,mapt=None,flow=None):
         
         #visual encoder:
-        ogm_prv = input_dic['prv/his/occupancy_map']# B T H W
+        ogm_prv = input_dic['prv/state/his/observed_occupancy_map']# B T H W
         if ogm_prv.dim() == 3:
             ogm_prv = torch.unsqueeze(ogm_prv, 0)
         ogm_prv = ogm_prv.permute([0,2,3,1]) # B H W T
         
-        flow_prv = input_dic['prv/his/flow_map']
+        flow_prv = input_dic['prv/state/his/flow_map']
         if flow_prv.dim() == 4:
             flow_prv = torch.unsqueeze(flow_prv, 0)
         flow_prv = flow_prv[:,0,:,:,:]# B H W 2
         
        
 
-        ogm_cur = input_dic['cur/his/occupancy_map']# B T H W
+        ogm_cur = input_dic['cur/state/his/observed_occupancy_map']# B T H W
         if ogm_cur.dim() == 3:
             ogm_cur = torch.unsqueeze(ogm_cur, 0)
         ogm_cur = ogm_cur.permute([0,2,3,1]) # B H W T
         
-        flow_cur = input_dic['cur/his/flow_map']
+        flow_cur = input_dic['cur/state/his/flow_map']
         if flow_cur.dim() == 4:
             flow_cur = torch.unsqueeze(flow_cur, 0)
         flow_cur = flow_cur[:,0,:,:,:]# B H W 2
 
 
             
-        ogm_nxt = input_dic['nxt/his/occupancy_map']# B T H W
+        ogm_nxt = input_dic['nxt/state/his/observed_occupancy_map']# B T H W
         if ogm_nxt.dim() == 3:
             ogm_nxt = torch.unsqueeze(ogm_nxt, 0)
         ogm_nxt = ogm_nxt.permute([0,2,3,1]) # B H W T
         
-        flow_nxt = input_dic['nxt/his/flow_map']
+        flow_nxt = input_dic['nxt/state/his/flow_map']
         if flow_nxt.dim() == 4:
             flow_nxt = torch.unsqueeze(flow_nxt, 0)
         flow_nxt = flow_nxt[:,0,:,:,:]# B H W 2
-        print(flow_nxt.shape)
 
         
         
@@ -1723,7 +1722,6 @@ class OFMPNet(torch.nn.Module):
         q_nxt = self.encoder(ogm_nxt,map_img,flow_nxt,training)[-1]
 
         q = q_cur + q_prv + q_nxt
-        print(q.shape)
 
         if self.fg_msa:
             q = torch.reshape(q,[-1,16,8,384])
@@ -1738,11 +1736,11 @@ class OFMPNet(torch.nn.Module):
             query = ref + query
         
         # traj_prv = torch.concatenate([input_dic['prv/his/x_position'][..., None],input_dic['prv/his/y_position'][..., None]],dim=-1).permute([0,2,1,3])
-        traj_cur = torch.concatenate([input_dic['cur/his/x_position'][..., None],
-                                      input_dic['cur/his/y_position'][..., None],
-                                      input_dic['cur/his/x_velocity'][..., None],
-                                      input_dic['cur/his/y_velocity'][..., None],
-                                      input_dic['cur/his/yaw_angle'][..., None]]
+        traj_cur = torch.concatenate([input_dic['cur/state/his/x_position'][..., None],
+                                      input_dic['cur/state/his/y_position'][..., None],
+                                      input_dic['cur/state/his/x_velocity'][..., None],
+                                      input_dic['cur/state/his/y_velocity'][..., None],
+                                      input_dic['cur/state/his/yaw_angle'][..., None]]
                                      ,dim=-1)
         # traj_nxt = torch.concatenate([input_dic['nxt/his/x_position'][..., None],input_dic['nxt/his/y_position'][..., None]],dim=-1).permute([0,2,1,3])
         
@@ -1760,19 +1758,6 @@ class OFMPNet(torch.nn.Module):
 
 
 
-\
 
-cfg=dict(input_size=(256,128), window_size=8, embed_dim=96, depths=[2,2,2], num_heads=[3,6,12])
-model = OFMPNet(cfg,actor_only=True,sep_actors=False,fg_msa=True)
-gria_size_x = config.dataset.grid_size_x
-grid_size_y = config.dataset.grid_size_y
-map_size = (gria_size_x, grid_size_y)
-map_img = torch.zeros([1,*map_size,3])
 
-road_lines_y = [12, 24, 36, 48, 60, -12, -24, -36, -48, -60]
-# Loop through each road line y-coordinate and draw horizontal lines
-for road_line_y in road_lines_y:
-    y_coord = road_line_y * grid_size_y / 160 + grid_size_y / 2
-    map_img[:,:,int(y_coord),:] = 1
 
-print(model(input_dict, map_img, training=True).shape)

@@ -3,27 +3,29 @@ import numpy as np
 from utils.file_utils import get_config
 from utils.occ_flow_utils import GridMap
 from tqdm import tqdm
-
+import time
 config = get_config()
 
 grid_map = GridMap(config)
 start_pos = config.data_attr.start_pos * 5280
 end_pos = config.data_attr.end_pos * 5280  # mile to feet
-data_df = pd.read_parquet(config.dataset.processed_data)
-print('loaded data')
+data_df = pd.read_parquet('63858a2cfb3ff533c12df166.parquet')
 x_min = max(data_df['x_position'].min(), start_pos)
 x_max = data_df['x_position'].max()
 time_min = max(data_df['timestamp'].min(), 0)
 time_max = data_df['timestamp'].max()
+data_df.set_index('timestamp', inplace=True)
+data_df.sort_index(inplace=True)
+print('loaded data')
 spatial_stride = config.preprocess.spatial_stride
 temporal_stride = config.preprocess.temporal_stride
 spatial_window = config.preprocess.spatial_window
 temporal_window = config.preprocess.temporal_window
 spatial_length = int(np.floor((x_max - x_min - spatial_window) / spatial_stride))
 temporal_length = int(np.floor((time_max - time_min - temporal_window) / temporal_stride))
-total_len = spatial_length * temporal_length
-his_len = config.dataset.his_len
-pred_len = config.dataset.pred_len
+
+his_len = config.task.his_len
+pred_len = config.task.pred_len
 def get_scene_data(idx_list):
     prv_idx, cur_idx, nxt_idx = idx_list
     
@@ -31,7 +33,12 @@ def get_scene_data(idx_list):
     prv_spatial_start, _, prv_temporal_start, prv_temporal_end = idx2range(prv_idx)
     _, nxt_spatial_end, _, _ = idx2range(nxt_idx)
     
-    scene_data = data_df[(data_df['timestamp'].between(prv_temporal_start, prv_temporal_end))]
+    # scene_data = data_df[(data_df['timestamp'].between(prv_temporal_start, prv_temporal_end))]
+    # scene_data = scene_data[(scene_data['x_position'].between(prv_spatial_start, nxt_spatial_end))]
+    # time stamp is the index, use the index to slice the data
+    scene_data = data_df.loc[prv_temporal_start:prv_temporal_end].copy()
+    scene_data.loc[:, 'timestamp']= scene_data.index
+    scene_data.reset_index(drop=True, inplace=True)
     scene_data = scene_data[(scene_data['x_position'].between(prv_spatial_start, nxt_spatial_end))]
     return scene_data
 
@@ -52,8 +59,9 @@ def add_occ_flow(feature_dic):
 
 def get_feature_dics(idx_list):
     prv_idx, cur_idx, nxt_idx = idx_list
+    prv_time = time.time()
     scene_data = get_scene_data(idx_list)
-    
+    print(f'get_scene_data time: {time.time() - prv_time}')
     prv_feature_dic, cur_feature_dic, nxt_feature_dic = get_feature_dic(scene_data, prv_idx), get_feature_dic(scene_data, cur_idx), get_feature_dic(scene_data, nxt_idx)
     return prv_feature_dic, cur_feature_dic, nxt_feature_dic
     
@@ -166,7 +174,7 @@ def process_idx(idx):
 
 # # Number of threads to use
 num_threads = 16
-
+total_len = spatial_length * temporal_length
 # Create ThreadPoolExecutor to parallelize the processing of idx
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress

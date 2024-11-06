@@ -52,7 +52,7 @@ def compute_occupancy_flow_metrics(
     )
 
   # Iterate over waypoints.
-  for k in range(config.num_waypoints):
+  for k in range(config.task.num_waypoints):
     pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
     pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
     pred_flow = pred_flow_logits[:,k]
@@ -93,6 +93,8 @@ def compute_occupancy_flow_metrics(
       # Compute flow-warped occupancy metrics.
       # First, construct ground-truth occupancy of all observed and occluded
       # vehicles.
+      
+      
       true_all_occupancy = torch.clamp(
           true_observed_occupancy + true_occluded_occupancy, 0, 1)
       # Construct predicted version of same value.
@@ -238,7 +240,7 @@ def _flow_warp(
   )
 
   warped_flow_origins = []
-  for k in range(config.num_waypoints):
+  for k in range(config.task.num_waypoints):
     # [batch_size, height, width, 1]
     # [batch_size, height, width, 2]
     pred_flow = pred_flow_logits[:, k]

@@ -103,7 +103,7 @@ class OGMFlow_loss():
                 
             ),dim=-1)
         identity_indices = identity_indices.detach()
-        print(identity_indices.shape)
+        # print(identity_indices.shape)
         # Iterate over waypoints.
         # flow_origin_occupancy = curr_ogm[:,128:128+256,128:128+256,tf.newaxis]
         n_waypoints = self.config.task.num_waypoints
@@ -347,6 +347,6 @@ def test_loss(config):
     print(values)
 
 
-if __name__ == "__main__":
-    config = get_config("./config.json")
-    test_loss(config)
+# if __name__ == "__main__":
+#     config = get_config("./config.json")
+#     test_loss(config)

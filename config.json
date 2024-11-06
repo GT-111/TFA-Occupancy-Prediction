@@ -29,7 +29,7 @@
         "test_ratio": 0.1
     },
     "dataloader":{
-        "num_workers": 1,
+        "num_workers": 20,
         "batch_size": 10,
         "shuffle": false
     },
@@ -40,7 +40,7 @@
     },
     "training": {
         "checkpoint_interval": 1,
-        "num_epochs": 20,
+        "epochs": 20,
         "optimizer" :{
             "lr": 0.001,
             "weight_decay": 0.0001

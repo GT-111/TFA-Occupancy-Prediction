@@ -1,7 +1,9 @@
 /processed_data/
 /raw_data/
 /auxiliary_data/
+/logs/
 __pycache__/
 *.pyc
 *.mp4
 *.pth
+*.parquet
