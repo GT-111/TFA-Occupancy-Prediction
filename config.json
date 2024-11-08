@@ -1,6 +1,6 @@
 {
     "paths":{
-        "raw_data":  "./raw_data",
+        "raw_data":  "./raw_data/",
         "auxiliary_data": "./auxiliary_data/",
         "processed_data" : "./processed_data/",
         "checkpoints": "./checkpoints/",
@@ -29,8 +29,8 @@
         "test_ratio": 0.1
     },
     "dataloader":{
-        "num_workers": 20,
-        "batch_size": 10,
+        "num_workers": 10,
+        "batch_size": 16,
         "shuffle": false
     },
     "task":{

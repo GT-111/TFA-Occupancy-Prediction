@@ -9,7 +9,7 @@ config = get_config()
 grid_map = GridMap(config)
 start_pos = config.data_attr.start_pos * 5280
 end_pos = config.data_attr.end_pos * 5280  # mile to feet
-data_df = pd.read_parquet('63858a2cfb3ff533c12df166.parquet')
+data_df = pd.read_parquet(config.paths.raw_data + '/63858a2cfb3ff533c12df166.parquet')
 x_min = max(data_df['x_position'].min(), start_pos)
 x_max = data_df['x_position'].max()
 time_min = max(data_df['timestamp'].min(), 0)
@@ -51,20 +51,22 @@ def idx2range(idx):
     temporal_end = temporal_start + temporal_window - 1
     return spatial_start, spatial_end, temporal_start, temporal_end
 
-def add_occ_flow(feature_dic):
-    occ_map, flow_map = grid_map.get_map_flow(feature_dic)
-    feature_dic['occupancy_map'] = occ_map
-    feature_dic['flow_map'] = flow_map
-    return feature_dic
 
 def get_feature_dics(idx_list):
     prv_idx, cur_idx, nxt_idx = idx_list
-    prv_time = time.time()
+    # prv_time = time.time()
     scene_data = get_scene_data(idx_list)
-    print(f'get_scene_data time: {time.time() - prv_time}')
+    # print(f'get_scene_data time: {time.time() - prv_time}')
     prv_feature_dic, cur_feature_dic, nxt_feature_dic = get_feature_dic(scene_data, prv_idx), get_feature_dic(scene_data, cur_idx), get_feature_dic(scene_data, nxt_idx)
     return prv_feature_dic, cur_feature_dic, nxt_feature_dic
-    
+
+def add_occ_flow(feature_dic):
+    occluded_occupancy_map, observed_occupancy_map, flow_map = grid_map.get_map_flow(feature_dic)
+    feature_dic['occluded_occupancy_map'] = occluded_occupancy_map.astype(np.float16)
+    feature_dic['observed_occupancy_map'] = observed_occupancy_map.astype(np.float16)
+    feature_dic['flow_map'] = flow_map.astype(np.float16)
+    return feature_dic 
+
 def get_feature_dic(scene_data, idx):
     spatial_start, spatial_end, temporal_start, temporal_end = idx2range(idx)
     scene_data = scene_data[(scene_data['x_position'].between(spatial_start, spatial_end))]
@@ -90,7 +92,7 @@ def get_feature_dic(scene_data, idx):
         vehicles_height[idx] = group['height'].iloc[0]
         vehicles_direction[idx] = group['direction'].iloc[0]
         timestamp = group['timestamp'].values
-        timestamp_idx = (timestamp - temporal_start).astype(np.int32)
+        timestamp_idx = (timestamp - temporal_start).astype(np.int16)
         vehicles_timestamp[idx, timestamp_idx] = timestamp
         vehicles_x[idx, timestamp_idx] = group['x_position'].values - spatial_start
         vehicles_y[idx, timestamp_idx] = group['y_position'].values
@@ -123,10 +125,8 @@ def get_feature_dic(scene_data, idx):
         'start_time': temporal_start,
     }
     return result_dict
-
-import concurrent.futures
 import typing
-
+import concurrent.futures
 def process_idx(idx):
     spatial_idx = idx % spatial_length
     if spatial_idx == 0:
@@ -145,10 +145,30 @@ def process_idx(idx):
     # cur_feature_dic = add_occ_flow(cur_feature_dic)
     # nxt_feature_dic = add_occ_flow(nxt_feature_dic)
     result_dic = {
-        'prv': prv_feature_dic,
-        'cur': cur_feature_dic,
-        'nxt': nxt_feature_dic
+        'prv': add_occ_flow(prv_feature_dic),
+        'cur': add_occ_flow(cur_feature_dic),
+        'nxt': add_occ_flow(nxt_feature_dic)
     }
+    num_waypoints = config.task.num_waypoints
+    
+    feature_dic = typing.DefaultDict(dict)
+    for dic_k, dic in result_dic.items():
+        for k, v in dic.items():
+            if k in ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']:
+                # (Num of Agents, Timestamp
+                feature_dic[dic_k + '/state/his/' + k] = v[:, :config.task.his_len]
+                feature_dic[dic_k + '/state/pred/' + k] = v[: config.task.his_len: config.task.his_len + config.task.pred_len]
+            elif k in ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']:
+                # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
+                feature_dic[dic_k + '/state/his/' + k] = v[:config.task.his_len,...]
+                feature_pred = v[config.task.his_len: config.task.his_len + config.task.pred_len,...]
+                timestamps= feature_pred.shape[0]
+                feature_dic[dic_k + '/state/pred/' + k] = feature_pred[::(timestamps // num_waypoints),...]
+                # pred_v = v[his_len: his_len + pred_len,...]
+                # pred_v = pred_v.reshape(-1, pred_len//10, *pred_v.shape[1:]).sum(axis=0)
+                # print(f'{k}, pred {pred_v.shape}')
+            else:
+                feature_dic[dic_k + '/meta/' + k] = v
     # Create the feature dictionary to save
     # feature_dic = typing.DefaultDict(dict)
     # for dic_k, dic in {'prv':prv_feature_dic, 'cur': cur_feature_dic, 'nxt': nxt_feature_dic}.items():
@@ -170,15 +190,15 @@ def process_idx(idx):
     #             feature_dic[dic_k + '/meta/' + k] = v
     
     # Save the feature dictionary
-    np.save(f'{config.paths.processed_data}/scene_{idx}', result_dic)
+    np.save(f'{config.paths.processed_data}/scene_{idx}', feature_dic)
 
-# # Number of threads to use
-num_threads = 16
-total_len = spatial_length * temporal_length
+# # # Number of threads to use
+num_threads = 20
+# total_len = spatial_length * temporal_length
+total_len = 100000
 # Create ThreadPoolExecutor to parallelize the processing of idx
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress
     list(tqdm(executor.map(process_idx, range(total_len)), total=total_len))
-
 
     

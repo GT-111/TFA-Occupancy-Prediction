@@ -40,8 +40,8 @@ class OGMFlowMetrics(object):
 
         res_dict['vehicles_flow_epe'] = self.flow_epe.compute()
         if not self.no_warp:
-            res_dict['vehicles_flow_ogm_auc'] = self.flow_ogm_auc.compute()
-            res_dict['vehicles_flow_ogm_iou'] = self.flow_ogm_iou.compute()
+            res_dict['vehicles_flow_warped_occupancy_auc'] = self.flow_ogm_auc.compute()
+            res_dict['vehicles_flow_warped_occupancy_iou'] = self.flow_ogm_iou.compute()
 
         return res_dict
     

@@ -39,7 +39,7 @@ def save_checkpoint(model, optimizer, scheduler, epoch, path, global_step):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
-    }, path + f'/epoch_{epoch+1}.pt')
+    }, path + f'/epoch_{epoch+1}.pth')
     
 def parse_outputs(outputs, num_waypoints):
     """

@@ -85,6 +85,7 @@ def json2csv(config, keys_to_use, duration_dict):
         
         result_df, file_name = process_file(raw_data_file, keys_to_use, duration_dict)
         path = config.paths.processed_data + file_name + '.parquet'
+        
         result_df.to_parquet(path)
         
         
