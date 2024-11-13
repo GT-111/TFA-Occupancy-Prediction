@@ -1677,16 +1677,16 @@ class OFMPNet(torch.nn.Module):
     
     def forward(self,input_dic,map_img,training=True,obs=None,occ=None,mapt=None,flow=None):
         
-        #visual encoder:
-        ogm_prv = input_dic['prv/state/his/observed_occupancy_map']# B T H W
-        if ogm_prv.dim() == 3:
-            ogm_prv = torch.unsqueeze(ogm_prv, 0)
-        ogm_prv = ogm_prv.permute([0,2,3,1]) # B H W T
+        # #visual encoder:
+        # ogm_prv = input_dic['prv/state/his/observed_occupancy_map']# B T H W
+        # if ogm_prv.dim() == 3:
+        #     ogm_prv = torch.unsqueeze(ogm_prv, 0)
+        # ogm_prv = ogm_prv.permute([0,2,3,1]) # B H W T
         
-        flow_prv = input_dic['prv/state/his/flow_map']
-        if flow_prv.dim() == 4:
-            flow_prv = torch.unsqueeze(flow_prv, 0)
-        flow_prv = flow_prv[:,0,:,:,:]# B H W 2
+        # flow_prv = input_dic['prv/state/his/flow_map']
+        # if flow_prv.dim() == 4:
+        #     flow_prv = torch.unsqueeze(flow_prv, 0)
+        # flow_prv = flow_prv[:,0,:,:,:]# B H W 2
         
        
 
@@ -1702,26 +1702,29 @@ class OFMPNet(torch.nn.Module):
 
 
             
-        ogm_nxt = input_dic['nxt/state/his/observed_occupancy_map']# B T H W
-        if ogm_nxt.dim() == 3:
-            ogm_nxt = torch.unsqueeze(ogm_nxt, 0)
-        ogm_nxt = ogm_nxt.permute([0,2,3,1]) # B H W T
+        # ogm_nxt = input_dic['nxt/state/his/observed_occupancy_map']# B T H W
+        # if ogm_nxt.dim() == 3:
+        #     ogm_nxt = torch.unsqueeze(ogm_nxt, 0)
+        # ogm_nxt = ogm_nxt.permute([0,2,3,1]) # B H W T
         
-        flow_nxt = input_dic['nxt/state/his/flow_map']
-        if flow_nxt.dim() == 4:
-            flow_nxt = torch.unsqueeze(flow_nxt, 0)
-        flow_nxt = flow_nxt[:,0,:,:,:]# B H W 2
+        # flow_nxt = input_dic['nxt/state/his/flow_map']
+        # if flow_nxt.dim() == 4:
+        #     flow_nxt = torch.unsqueeze(flow_nxt, 0)
+        # flow_nxt = flow_nxt[:,0,:,:,:]# B H W 2
 
         
         
-        q_prv = self.encoder(ogm_prv,map_img,flow_prv,training)[-1]
+        # q_prv = self.encoder(ogm_prv,map_img,flow_prv,training)[-1]
 
+        # res_list = self.encoder(ogm_cur,map_img,flow_cur,training)
+        # q_cur = res_list[-1]
+
+        # q_nxt = self.encoder(ogm_nxt,map_img,flow_nxt,training)[-1]
+
+        # q = q_cur + q_prv + q_nxt
+        
         res_list = self.encoder(ogm_cur,map_img,flow_cur,training)
-        q_cur = res_list[-1]
-
-        q_nxt = self.encoder(ogm_nxt,map_img,flow_nxt,training)[-1]
-
-        q = q_cur + q_prv + q_nxt
+        q = res_list[-1]
 
         if self.fg_msa:
             q = torch.reshape(q,[-1,16,8,384])

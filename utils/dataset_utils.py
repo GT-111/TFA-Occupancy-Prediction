@@ -144,9 +144,9 @@ def get_dataloader(config):
     dataset = get_dataset(config)
     train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
     
-    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=config.dataloader.shuffle), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
-    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=config.dataloader.shuffle), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
-    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=config.dataloader.shuffle), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
     
     return train_dataloader, val_dataloader, test_dataloader
 

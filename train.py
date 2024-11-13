@@ -14,10 +14,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
-ogm_weight  = 1000.0
-occ_weight  = 1000.0
+ogm_weight  = 100
+occ_weight  = 100
 flow_weight = 1.0
-flow_origin_weight = 1000.0
+flow_origin_weight = 500
 
 
 
@@ -41,10 +41,10 @@ def setup(config, gpu_id):
     model = OFMPNet(cfg,actor_only=True,sep_actors=False,fg_msa=True).to(gpu_id)
     model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
     loss_fn = OGMFlow_loss(config=config, 
-                           ogm_weight=1000.0,
-                           occ_weight=1000.0,
-                           flow_weight=1.0,
-                           flow_origin_weight=1000.0,
+                           ogm_weight=ogm_weight,
+                           occ_weight=occ_weight,
+                           flow_weight=flow_weight,
+                           flow_origin_weight=flow_origin_weight,
                            replica=1.0,
                            no_use_warp=False,
                            use_pred=False,
@@ -137,10 +137,11 @@ def model_training(gpu_id, world_size, config):
                 if batch % 20 == 0:
                     logger.add_scalars(main_tag="train_loss",
                                     tag_scalar_dict={
-                                        "observed_xe": obs_loss,
-                                        "occluded_xe": occ_loss,
-                                        "flow": flow_loss,
-                                        "flow_warp_xe": warp_loss
+                                        "observed_xe": obs_loss * ogm_weight,
+                                        "occluded_xe": occ_loss * occ_weight,
+                                        "flow": flow_loss * flow_weight,
+                                        "flow_warp_xe": warp_loss * flow_origin_weight,
+                                        "loss": loss_value
                                     },
                                     global_step=global_step
                                     )   
@@ -220,10 +221,10 @@ def model_training(gpu_id, world_size, config):
                 
                 logger.add_scalars(main_tag="val_loss",
                                 tag_scalar_dict={
-                                "observed_xe": obs_loss,
-                                "occluded_xe": occ_loss,
-                                "flow": flow_loss,
-                                "flow_warp_xe": warp_loss
+                                "observed_xe": obs_loss * ogm_weight,
+                                "occluded_xe": occ_loss * occ_weight,
+                                "flow": flow_loss * flow_weight,
+                                "flow_warp_xe": warp_loss * flow_origin_weight
                                 },
                                 global_step=global_step
                     )

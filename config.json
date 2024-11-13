@@ -29,7 +29,7 @@
         "test_ratio": 0.1
     },
     "dataloader":{
-        "num_workers": 10,
+        "num_workers": 1,
         "batch_size": 16,
         "shuffle": false
     },
