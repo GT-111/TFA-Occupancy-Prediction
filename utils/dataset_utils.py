@@ -127,9 +127,9 @@ def get_dataset(config):
 
 def get_train_val_test_dataset(dataset, config):
     
-    train_ratio = config.dataset.train_ratio
-    val_ratio = config.dataset.val_ratio
-    test_ratio = config.dataset.test_ratio
+    train_ratio = config.dataset_splits.train_ratio
+    val_ratio = config.dataset_splits.validation_ratio
+    test_ratio = config.dataset_splits.test_ratio
     
     train_size = int(len(dataset) * train_ratio)
     val_size = int(len(dataset) * val_ratio)
@@ -139,15 +139,27 @@ def get_train_val_test_dataset(dataset, config):
     
     return train_dataset, val_dataset, test_dataset
 
+def get_dataloader_ddp(config):
+    
+    dataset = get_dataset(config)
+    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
+    
+    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    
+    return train_dataloader, val_dataloader, test_dataloader
+
 def get_dataloader(config):
     
     dataset = get_dataset(config)
     train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
     
-    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
-    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
-    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=config.dataloader.shuffle, drop_last=True), batch_size=config.dataloader.batch_size, collate_fn=collate_fn, num_workers=config.dataloader.num_workers)
+    train_dataloader = DataLoader(train_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    val_dataloader = DataLoader(val_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    test_dataloader = DataLoader(test_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
     
     return train_dataloader, val_dataloader, test_dataloader
+
 
 

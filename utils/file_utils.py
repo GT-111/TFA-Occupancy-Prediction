@@ -1,7 +1,7 @@
 import os
 import easydict as edict
 import json
-
+import yaml
 def get_json_files(raw_data_path = './raw_data'):
 
     files = []
@@ -22,9 +22,21 @@ def get_npy_files(processed_data_path = './processed_data'):
     return files
 
 def get_config (config_file = './config.json'):
-    with open(config_file) as f:
-        config = edict.EasyDict(json.load(f))
+    # Load config file
+    # if config is end with .json
+    if config_file.endswith('.json'):
+        with open(config_file) as f:
+            config = edict.EasyDict(json.load(f))
+    elif config_file.endswith('.yaml'):
+        # if config is end with .yaml
+        with open(config_file) as f:
+            config = edict.EasyDict(yaml.load(f, Loader=yaml.FullLoader))
+            
     return config
+
+
+
+
 
 def get_last_checkpoint(checkpoint_path = './checkpoints/'):
     files = []

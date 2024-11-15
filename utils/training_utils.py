@@ -5,7 +5,7 @@ def parse_data(data, gpu_id, config):
     """
     input_dict = {}
     ground_truth_dict = {}
-    num_waypoints = config.task.num_waypoints
+    num_waypoints = config.task_config.num_waypoints
     state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_to_predict = ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_keys = []
@@ -52,3 +52,12 @@ def parse_outputs(outputs, num_waypoints):
     pred_flow_logits = outputs[:, :, :, :, 2:].reshape(B, num_waypoints, W, H, 2)
     
     return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits
+
+def get_scene_vehicle_nums(data):
+    """
+    Get number of vehicles in each scene
+    """
+    scene_vehicle_nums = {}
+    for scene_key in ['prv', 'cur', 'nxt']:
+        scene_vehicle_nums[scene_key] = (data[f'{scene_key}/meta/num_vehicles'].shape[0])
+    return scene_vehicle_nums

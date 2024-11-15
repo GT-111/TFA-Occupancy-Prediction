@@ -1,0 +1,106 @@
+paths:
+  raw_data: "./raw_data/"
+  auxiliary_data: "./auxiliary_data/"
+  processed_data: "./processed_data/"
+  checkpoints: "./checkpoints/"
+  logs: "./logs/"
+
+data_attributes:
+  sample_frequency: 25
+  start_position: 58.5
+  end_position: 63.5
+
+preprocessing:
+  spatial_stride: 320
+  spatial_window: 320
+  temporal_stride: 160
+  temporal_window: 160
+  agent_points:
+    per_side_length: 48
+    per_side_width: 16
+
+occupancy_flow_map:
+  grid_size:
+    x: 256
+    y: 256
+
+dataset_splits:
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  test_ratio: 0.1
+
+dataloader_config:
+  num_workers: 1
+  batch_size: 2
+  shuffle: false
+
+task_config:
+  history_length: 40
+  prediction_length: 120
+  num_waypoints: 12
+
+training_settings:
+  checkpoint_interval: 1
+  epochs: 20
+  optimizer:
+    learning_rate: 1e-4
+    weight_decay: 0.0001
+  scheduler:
+    step_size: 3
+    gamma: 0.5
+  loss_function:
+    type: "L2"
+    weight: 1.0
+
+model:
+  input_size: [256, 256]  
+  history_length: 40
+  transformer_depths: [2, 2, 2]
+
+  swin_transformer:
+    # Swin Transformer parameters
+    patch_size: [4, 4]
+    embed_dim: 96
+    
+    window_size: 8
+    embedding_dimension: 96
+    
+    attention_heads: [3, 6, 12]
+    mlp_ratio: 4. # hiden size ratio
+    drop_path_rate: 0.0
+    # Encoder Settings
+    use_flow: true
+    flow_sep: false
+    sep_encode: true
+    no_map: false
+    ape: true # Absolute Position Embedding
+    patch_norm: true
+    large_input: false
+    use_checkpoint: false
+
+    basic_layer:
+      qk_scale: None
+      qkv_bias: true
+      drop_rate: 0.0
+      attn_drop_rate: 0.0
+  
+  # flow-guided multi-scale attention
+  FGMSA:
+    query_size: [32,32]
+    key_value_size: [32,32]
+    num_attention_heads: 8
+    num_attention_head_channels: 24
+    num_groups: 8
+    input_dimension: 192
+    output_dimension: 192
+    attn_drop: 0.
+    proj_drop: 0.
+    stride: 1
+    offset_range_factor: 2
+    use_positional_encoding: True
+    dwc_pe: False
+    no_offset: False
+    fixed_positional_encoding: False
+    stage_idx: 3
+    use_last_ref: False
+    fg: False

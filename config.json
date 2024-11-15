@@ -12,10 +12,10 @@
         "end_pos": 63.5
     },
     "preprocess":{
-        "spatial_stride": 250, 
-        "spatial_window": 250,
-        "temporal_stride": 120, 
-        "temporal_window": 120,
+        "spatial_stride": 320, 
+        "spatial_window": 320,
+        "temporal_stride": 160, 
+        "temporal_window": 160,
         "agent_points_per_side_length":48,
         "agent_points_per_side_width": 16
     },
@@ -30,13 +30,13 @@
     },
     "dataloader":{
         "num_workers": 1,
-        "batch_size": 16,
+        "batch_size": 2,
         "shuffle": false
     },
     "task":{
-        "his_len": 20,
-        "pred_len": 100,
-        "num_waypoints": 8
+        "his_len": 40,
+        "pred_len": 120,
+        "num_waypoints": 12
     },
     "training": {
         "checkpoint_interval": 1,
@@ -54,8 +54,16 @@
             "loss_weight": 1.0
         }
 
+    },
+    "model" :{
+        "input_size": [256, 256],
+        "window_size": 8,
+        "embed_dim": 96,
+        "depths": [2, 2, 2],
+        "num_heads": [3, 6, 12],
+        "his_len": 40,
+        "large_input": false
     }
-
 
 
 }

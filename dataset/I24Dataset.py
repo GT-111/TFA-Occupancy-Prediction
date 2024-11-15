@@ -24,8 +24,8 @@ class I24Dataset(Dataset):
         data_dic = np.load(self.data_files[idx], allow_pickle=True).item()
         
         # Create the feature dictionary to save
-        his_len = self.config.task.his_len
-        pred_len = self.config.task.pred_len
+        his_len = self.config.task_config.history_length
+        pred_len = self.config.task_config.history_length
         feature_dic = data_dic
         # feature_dic = typing.DefaultDict(dict)
         # for dic_k, dic in data_dic.items():
@@ -55,23 +55,23 @@ class I24Dataset(Dataset):
             self.config = config
             self.grid_map = GridMap(config)
             self.data_df = pd.read_parquet('63858a2cfb3ff533c12df166.parquet')
-            self.start_pos = self.config.data_attr.start_pos * 5280
-            self.end_pos = self.config.data_attr.end_pos * 5280  # mile to feet
+            self.start_pos = self.config.data_attributes.start_position * 5280
+            self.end_pos = self.config.data_attributes.end_position * 5280  # mile to feet
             self.x_min = max(self.data_df['x_position'].min(), self.start_pos)
             self.x_max = self.data_df['x_position'].max()
             self.time_min = max(self.data_df['timestamp'].min(), 0)
             self.time_max = self.data_df['timestamp'].max()
             self.data_df.set_index('timestamp', inplace=True)
             self.data_df.sort_index(inplace=True)
-            self.spatial_stride = config.preprocess.spatial_stride
-            self.temporal_stride = config.preprocess.temporal_stride
-            self.spatial_window = config.preprocess.spatial_window
-            self.temporal_window = config.preprocess.temporal_window
+            self.spatial_stride = config.preprocessing.spatial_stride
+            self.temporal_stride = config.preprocessing.temporal_stride
+            self.spatial_window = config.preprocessing.spatial_window
+            self.temporal_window = config.preprocessing.temporal_window
             self.spatial_length = int(np.floor((self.x_max - self.x_min - self.spatial_window) / self.spatial_stride))
             self.temporal_length = int(np.floor((self.time_max - self.time_min - self.temporal_window) / self.temporal_stride))
 
-            self.his_len = self.config.task.his_len
-            self.pred_len = self.config.task.pred_len
+            self.his_len = self.config.task_config.history_length
+            self.pred_len = self.config.task_config.prediction_length
             
         def add_occ_flow(self, feature_dic):
             occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map.get_map_flow(feature_dic)
