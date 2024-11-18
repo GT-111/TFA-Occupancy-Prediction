@@ -18,7 +18,7 @@ class OFMPNet(torch.nn.Module):
         if self.fg_msa:
             self.fg_msa_layer = FlowGuidedMultiHeadSelfAttention(config=config)
         self.decoder = Pyramid3DDecoder(config=config)
-
+        self.num_waypoints = config.task_config.num_waypoints
     
     def forward(self,occupancy_map, flow_map, road_map, obs_traj, occ_traj):
 
@@ -30,8 +30,7 @@ class OFMPNet(torch.nn.Module):
         q = res + q
         B, H, W, D = q.size()
         q = q.reshape(B, H*W, D)
-        T = 12
-        query = torch.repeat_interleave(torch.unsqueeze(q, dim=1),repeats=T,axis=1)
+        query = torch.repeat_interleave(torch.unsqueeze(q, dim=1),repeats=self.num_waypoints,axis=1)
         
         obs_value = self.trajnet_attn(query, obs_traj, occ_traj)
         
