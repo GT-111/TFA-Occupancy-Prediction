@@ -7,15 +7,21 @@ def parse_data(data, gpu_id, config):
     ground_truth_dict = {}
     num_waypoints = config.task_config.num_waypoints
     state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
+    meta_array = ['length', 'width', 'class', 'direction']
+    meta_keys = []
     state_to_predict = ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_keys = []
     state_to_predict_keys = []
     for scene_key in ['prv', 'cur', 'nxt']:
+        for key in meta_array:
+            meta_keys.append(f'{scene_key}/meta/{key}')
         for key in state:
             state_keys.append(f'{scene_key}/state/his/{key}')
             if key in state_to_predict:
                 state_to_predict_keys.append(f'{scene_key}/state/pred/{key}')
     for key in state_keys:
+        input_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
+    for key in meta_keys:
         input_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
     for key in state_to_predict_keys:
         if data[key].dim() == 4:

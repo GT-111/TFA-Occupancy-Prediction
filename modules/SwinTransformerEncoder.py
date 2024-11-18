@@ -353,11 +353,11 @@ class SwinTransformerEncoder(torch.nn.Module):
 
         # if the occ map is larger than road map
         self.large_input= config.model.swin_transformer.large_input
-        self.transformer_depths = config.model.swin_transformer.transformer_depths
+        self.transformer_depths = config.model.transformer_depths
         self.attention_heads = config.model.swin_transformer.attention_heads
         self.num_layers = len(self.transformer_depths)
-        self.history_length = config.model.swin_transformer.history_length
-        self.input_size = config.model.swin_transformer.input_size
+        self.history_length = config.model.history_length
+        self.input_size = config.model.input_size
         self.embedding_dimension = config.model.swin_transformer.embedding_dimension
         self.ape = config.model.swin_transformer.ape
         self.patch_norm = config.model.swin_transformer.patch_norm
@@ -458,7 +458,7 @@ class SwinTransformerEncoder(torch.nn.Module):
         # self(dummy_ogm,dummy_map,dummy_flow)
         # summary(self)
 
-    def forward_features(self, occupancy_map, road_map, flow_map=None, training=True):
+    def forward_features(self, occupancy_map, flow_map=None, road_map=None, training=True):
         if self.sep_encode:
             
             
@@ -497,6 +497,7 @@ class SwinTransformerEncoder(torch.nn.Module):
         res_list=[]
         for i,st_layer in enumerate(self.basic_layers):
             # X : Downsampled feature, res : Original feature
+            
             x, res = st_layer(x,training)
             # last layer
             if i==self.num_layers - 1:
@@ -531,4 +532,4 @@ if __name__=='__main__':
     occupancy_map = torch.randn((2,256,256,40))
     road_map = torch.randn((2,256,256,3))
     flow_map = torch.randn((2,256,256,40, 2))
-    res = model(occupancy_map,road_map,flow_map[:,:,:,0,:])
+    res = model(occupancy_map,road_map,flow_map[:,:,:,-1,:])

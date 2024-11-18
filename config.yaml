@@ -56,7 +56,7 @@ model:
   input_size: [256, 256]  
   history_length: 40
   transformer_depths: [2, 2, 2]
-
+  # Ouput channel: input // 2^depths[0] // 2^depths[1] // 2^depths[2]... e.g. 256 // 2^2 // 2^2 // 2^2 = 16
   swin_transformer:
     # Swin Transformer parameters
     patch_size: [4, 4]
@@ -72,7 +72,11 @@ model:
     use_flow: true
     flow_sep: false
     sep_encode: true
-    no_map: false
+
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    no_map: true # not using the map
+
+
     ape: true # Absolute Position Embedding
     patch_norm: true
     large_input: false
@@ -85,14 +89,15 @@ model:
       attn_drop_rate: 0.0
   
   # flow-guided multi-scale attention
-  FGMSA:
-    query_size: [32,32]
-    key_value_size: [32,32]
-    num_attention_heads: 8
-    num_attention_head_channels: 24
-    num_groups: 8
-    input_dimension: 192
-    output_dimension: 192
+  FlowGuidedMultiHeadSelfAttention:
+  # input size should be the output size of the previous layer
+    query_size: [16,16]
+    key_value_size: [16,16]
+    num_attention_heads: 12
+    num_attention_head_channels: 32
+    num_groups: 12
+    input_dimension: 384
+    output_dimension: 384
     attn_drop: 0.
     proj_drop: 0.
     stride: 1
@@ -103,4 +108,16 @@ model:
     fixed_positional_encoding: False
     stage_idx: 3
     use_last_ref: False
-    fg: False
+    fg: true
+  TrajNetCrossAttention:
+    pic_size: [16, 16]
+    pic_dim : 384
+    sep_actors: false
+    TrajNet:
+      no_attention: false
+      double_net: false
+      traj_heads: 4
+      att_heads: 6
+      out_dim: 384
+      node_feature_dim: 12
+      vector_feature_dim: 4

@@ -8,34 +8,34 @@ from torchinfo import summary
 from utils.metrics_utils import sample
 
 
-class FGMSA(nn.Module):
+class FlowGuidedMultiHeadSelfAttention(nn.Module):
     def __init__(
         self, config
     ):
         super().__init__()
-        self.dwc_pe = config.model.FGMSA.dwc_pe
-        self.n_head_channels = config.model.FGMSA.num_attention_head_channels
+        self.dwc_pe = config.model.FlowGuidedMultiHeadSelfAttention.dwc_pe
+        self.n_head_channels = config.model.FlowGuidedMultiHeadSelfAttention.num_attention_head_channels
         self.scale = self.n_head_channels ** -0.5
-        self.n_heads = config.model.FGMSA.num_attention_heads
-        self.q_h, self.q_w = config.model.FGMSA.query_size
-        self.kv_h, self.kv_w = config.model.FGMSA.key_value_size
-        self.nc = self.n_head_channels * self.n_heads
-        self.n_groups = config.model.FGMSA.num_groups
+        self.n_heads = config.model.FlowGuidedMultiHeadSelfAttention.num_attention_heads
+        self.q_h, self.q_w = config.model.FlowGuidedMultiHeadSelfAttention.query_size
+        self.kv_h, self.kv_w = config.model.FlowGuidedMultiHeadSelfAttention.key_value_size
+        self.nc = self.n_head_channels * self.n_heads# number of channels
+        self.n_groups = config.model.FlowGuidedMultiHeadSelfAttention.num_groups
         self.n_group_channels = self.nc // self.n_groups
         self.n_group_heads = self.n_heads // self.n_groups
-        self.use_pe = config.model.FGMSA.use_positional_encoding
-        self.fixed_pe = config.model.FGMSA.fixed_positional_encoding
-        self.no_off = config.model.FGMSA.no_offset
-        self.offset_range_factor = config.model.FGMSA.offset_range_factor
-        self.use_last_ref = config.model.FGMSA.use_last_ref
-        self.fg = config.model.FGMSA.fg
-        self.stage_idx = config.model.FGMSA.stage_idx
+        self.use_pe = config.model.FlowGuidedMultiHeadSelfAttention.use_positional_encoding
+        self.fixed_pe = config.model.FlowGuidedMultiHeadSelfAttention.fixed_positional_encoding
+        self.no_off = config.model.FlowGuidedMultiHeadSelfAttention.no_offset
+        self.offset_range_factor = config.model.FlowGuidedMultiHeadSelfAttention.offset_range_factor
+        self.use_last_ref = config.model.FlowGuidedMultiHeadSelfAttention.use_last_ref
+        self.fg = config.model.FlowGuidedMultiHeadSelfAttention.fg
+        self.stage_idx = config.model.FlowGuidedMultiHeadSelfAttention.stage_idx
         self.ref_res = None
-        self.stride = config.model.FGMSA.stride
-        self.proj_drop = config.model.FGMSA.proj_drop
-        self.attn_drop = config.model.FGMSA.attn_drop
-        self.in_dim = config.model.FGMSA.input_dimension
-        self.out_dim = config.model.FGMSA.output_dimension
+        self.stride = config.model.FlowGuidedMultiHeadSelfAttention.stride
+        self.proj_drop = config.model.FlowGuidedMultiHeadSelfAttention.proj_drop
+        self.attn_drop = config.model.FlowGuidedMultiHeadSelfAttention.attn_drop
+        self.in_dim = config.model.FlowGuidedMultiHeadSelfAttention.input_dimension
+        self.out_dim = config.model.FlowGuidedMultiHeadSelfAttention.output_dimension
         ksizes = [9, 7, 5, 3]
         kk = ksizes[self.stage_idx]
 
@@ -66,7 +66,7 @@ class FGMSA(nn.Module):
         self.in_dim = self.in_dim
         self.out_dim = self.out_dim
         ref = torch.zeros((1*self.n_groups,self.q_h,self.q_w,2))
-        self(dummy_x,last_reference=ref)
+        # self(dummy_x,last_reference=ref)
         # summary(self)
     
     def _get_offset(self,x):
@@ -96,7 +96,7 @@ class FGMSA(nn.Module):
         ref = ref.detach()
         return ref
 
-    def forward(self, x,training=True,last_reference=None):
+    def forward(self, x):
         B, H, W,C = x.size()
         x = x.permute(0,3,1,2) # channels as 2nd dim
         q = self.proj_q(x)
@@ -118,7 +118,7 @@ class FGMSA(nn.Module):
             flow_hidden = torch.reshape(flow_hidden,(B, self.n_groups, Hk,Wk, self.out_dim))
         
         if self.use_last_ref:
-            reference = torch.reshape(last_reference,(B*self.n_groups, Hk, Wk, 2))
+            reference = torch.reshape(self.use_last_ref,(B*self.n_groups, Hk, Wk, 2))
         else:
             reference = self._get_ref_points(Hk, Wk, B).to(x.device)
             
@@ -185,6 +185,6 @@ if __name__=='__main__':
     config = get_config('./config.yaml')
     dummy_x = torch.randn((1,32,32,192))
     print(dummy_x.shape)
-    model = FGMSA(config)
+    model = FlowGuidedMultiHeadSelfAttention(config)
     out = model(dummy_x)
     print(out)
