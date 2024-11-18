@@ -7,7 +7,7 @@ def parse_data(data, gpu_id, config):
     ground_truth_dict = {}
     num_waypoints = config.task_config.num_waypoints
     state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
-    meta_array = ['length', 'width', 'class', 'direction']
+    meta_array = ['num_vehicles', 'length', 'width', 'class', 'direction']
     meta_keys = []
     state_to_predict = ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_keys = []
@@ -51,8 +51,7 @@ def parse_outputs(outputs, num_waypoints):
     """
     Parse model outputs
     """
-    B, W, H, C = outputs.shape
-    outputs = outputs.reshape(B, W, H, num_waypoints, C//num_waypoints)
+    B, T, W, H, C = outputs.shape
     pred_observed_occupancy_logits = outputs[:, :, :, :, :1].reshape(B, num_waypoints, W, H, 1)
     pred_occluded_occupancy_logits = outputs[:, :, :, :, 1:2].reshape(B, num_waypoints, W, H, 1)
     pred_flow_logits = outputs[:, :, :, :, 2:].reshape(B, num_waypoints, W, H, 2)

@@ -22,7 +22,7 @@ class OFMPNet(torch.nn.Module):
     
     def forward(self,occupancy_map, flow_map, road_map, obs_traj, occ_traj):
 
-        res_list = self.encoder(occupancy_map=occupancy_map,flow_map=flow_map[:,:,:,-1,:], road_map=road_map)
+        res_list = self.encoder(occupancy_map=occupancy_map,flow_map=flow_map, road_map=road_map)
         q = res_list[-1]
         if self.fg_msa:
             res, pos, ref = self.fg_msa_layer(q)

@@ -90,8 +90,8 @@ class OGMFlow_loss():
 
 
         #Preparation for flow warping:
-        h = torch.arange(0, self.config.occ_flow_map.grid_size_y, dtype=torch.float32, device=device)
-        w = torch.arange(0, self.config.occ_flow_map.grid_size_x, dtype=torch.float32, device=device)
+        h = torch.arange(0, self.config.occupancy_flow_map.grid_size.y, dtype=torch.float32, device=device)
+        w = torch.arange(0, self.config.occupancy_flow_map.grid_size.x, dtype=torch.float32, device=device)
         h_idx, w_idx = torch.meshgrid(h, w, 
             indexing="xy")
         # These indices map each (x, y) location to (x, y).
@@ -106,7 +106,7 @@ class OGMFlow_loss():
         # print(identity_indices.shape)
         # Iterate over waypoints.
         # flow_origin_occupancy = curr_ogm[:,128:128+256,128:128+256,tf.newaxis]
-        n_waypoints = self.config.task.num_waypoints
+        n_waypoints = self.config.task_config.num_waypoints
         has_true_observed_occupancy = {-1: True}
         has_true_occluded_occupancy = {-1: True}
         true_obs_cnt,true_occ_cnt,true_flow_cnt = [],[],[]
@@ -318,12 +318,12 @@ class OGMFlow_loss():
 
 
 def test_loss(config):
-    his_len = config.task.his_len
-    pred_len = config.task.pred_len
-    batch_size = config.dataloader.batch_size
-    grid_size_x = config.occ_flow_map.grid_size_x
-    grid_size_y = config.occ_flow_map.grid_size_y
-    num_waypoints = config.task.num_waypoints
+    his_len = config.task_config.history_length
+    pred_len = config.task_config.prediction_length
+    batch_size = config.dataloader_config.batch_size
+    grid_size_x = config.occupancy_flow_map.grid_size.x
+    grid_size_y = config.occupancy_flow_map.grid_size.y
+    num_waypoints = config.task_config.num_waypoints
     
     dummy_pred_observed_occupancy = cur_ogm = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 1))
     dummy_pred_occluded_occupancy = torch.rand((batch_size, num_waypoints,  grid_size_x, grid_size_y, 1))

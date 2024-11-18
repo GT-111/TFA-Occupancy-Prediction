@@ -161,5 +161,43 @@ def get_dataloader(config):
     
     return train_dataloader, val_dataloader, test_dataloader
 
+def get_road_map(config):
+    batch_size = config.dataloader_config.batch_size
+    grid_size_x = config.occupancy_flow_map.grid_size.x
+    grid_size_y = config.occupancy_flow_map.grid_size.y
+    map_size = (grid_size_x, grid_size_y)
+    base_img = np.ones((*map_size,3))
+    road_lines_south = [-60, -48, -36, -24, -12]
+    road_lines_north = [12, 24, 36, 48, 60]
+    road_boundaries_north = [12, 60]
+    road_boundaries_south = [-60, -12]
+    def to_map_coord(y):
+        return int(y * grid_size_y / 160 + grid_size_y / 2)
+    center_lines_north = [to_map_coord((road_lines_north[i] + road_lines_north[i + 1]) / 2) for i in range(0, len(road_lines_north) - 1)]
+    
+    center_lines_south = [to_map_coord((road_lines_south[i] + road_lines_south[i + 1]) / 2) for i in range(0, len(road_lines_south) - 1)]
+    # set the road area
+    road_boundaries_north = [to_map_coord(x) for x in road_boundaries_north]
+    road_boundaries_south = [to_map_coord(x) for x in road_boundaries_south]
+    base_img[:, road_boundaries_north[0]:road_boundaries_north[1], :] = 0.75
+    base_img[:, road_boundaries_south[0]:road_boundaries_south[1], :] = 0.75
+    # set the road center lines
+    base_img[:, center_lines_north, :] = 0.5
+    base_img[:, center_lines_south, :] = 0.5
+    
+    # set the road lines
+    road_lines_south = [to_map_coord(x) for x in road_lines_south]
+    road_lines_north = [to_map_coord(x) for x in road_lines_north]
+    base_img[:, road_lines_south, :] = 0.25
+    base_img[:, road_lines_north, :] = 0.25
+    # set the road boundaries
+    base_img[:, road_boundaries_north, :] = 0
+    base_img[:, road_boundaries_south, :] = 0
+    base_img = base_img[None, :, :, :]
+    base_img = np.repeat(base_img, batch_size, axis=0)
+    
+    return base_img
+
+
 
 

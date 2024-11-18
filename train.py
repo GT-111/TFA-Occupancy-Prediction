@@ -1,5 +1,5 @@
 from utils.file_utils import get_config, get_last_checkpoint
-from utils.dataset_utils import get_dataloader
+from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
 from tqdm import tqdm
@@ -37,8 +37,7 @@ def setup(config, gpu_id):
     """
     """
     
-    cfg=dict(input_size=(256,128), window_size=8, embed_dim=96, depths=[2,2,2], num_heads=[3,6,12])
-    model = OFMPNet(cfg,actor_only=True,sep_actors=False,fg_msa=True).to(gpu_id)
+    model = OFMPNet(config).to(gpu_id)
     model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
     loss_fn = OGMFlow_loss(config=config, 
                            ogm_weight=ogm_weight,
@@ -52,12 +51,12 @@ def setup(config, gpu_id):
                            use_gt=False)
     
     optimizer = torch.optim.NAdam(params=model.parameters(), 
-                                  lr=config.training.optimizer.lr,
-                                  weight_decay=config.training.optimizer.weight_decay) 
+                                  lr=config.training_settings.optimizer.learning_rate,
+                                  weight_decay=config.training_settings.optimizer.weight_decay) 
     
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optimizer, 
-                                                step_size=config.training.scheduler.step_size,
-                                                gamma=config.training.scheduler.gamma) 
+                                                step_size=config.training_settings.scheduler.step_size,
+                                                gamma=config.training_settings.scheduler.gamma) 
     
     return model, loss_fn, optimizer, scheduler
 
@@ -68,7 +67,7 @@ def model_training(gpu_id, world_size, config):
     ddp_setup(gpu_id, world_size)
     logger = SummaryWriter(log_dir=config.paths.logs)
     model, loss_fn, optimizer, scheduler = setup(config, gpu_id)
-    train_dataloader, val_dataloader, _ = get_dataloader(config)
+    train_dataloader, val_dataloader, _ = get_dataloader_ddp(config)
     global_step = 0
     if get_last_checkpoint(config.paths.checkpoints) is not None:
         
@@ -85,10 +84,10 @@ def model_training(gpu_id, world_size, config):
     
     
     
-    for epoch in range(config.training.epochs):
+    for epoch in range(config.training_settings.epochs):
         if epoch<continue_ep:
             if gpu_id == 0:
-                print("\nskip epoch {}/{}".format(epoch+1, config.training.epochs))
+                print("\nskip epoch {}/{}".format(epoch+1, config.training_settings.epochs))
             continue
         
         model.train()
@@ -106,12 +105,31 @@ def model_training(gpu_id, world_size, config):
                 # print if value has nan
                 if torch.isnan(val).any():
                     input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
-            his_occ = input_dict['cur/state/his/observed_occupancy_map']
-            flow_origin_occupancy = his_occ[:, -1, :, :, torch.newaxis]
-            map_size = (256,128)
-            map_img = torch.zeros([his_occ.size(0),*map_size,3]).to(gpu_id)
-            outputs = model(input_dict, map_img, training=True)
-            pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task.num_waypoints)
+            his_occupancy_map = input_dict['cur/state/his/observed_occupancy_map']
+            his_flow_map = input_dict['cur/state/his/flow_map']
+            flow_origin_occupancy = his_occupancy_map[:, -1, :, :, torch.newaxis]
+            road_map = torch.from_numpy(get_road_map(config)).to(gpu_id, dtype=torch.float32)
+            def get_trajs(input_dict):
+                num_vehicles = input_dict['cur/meta/num_vehicles']
+                vector_features_list = ['cur/meta/length', 'cur/meta/width', 'cur/meta/class', 'cur/meta/direction']
+                node_features_list = ['cur/state/his/timestamp', 'cur/state/his/x_position', 'cur/state/his/y_position', 'cur/state/his/x_velocity', 'cur/state/his/y_velocity', 'cur/state/his/yaw_angle',]
+                vector_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=1) for feature in vector_features_list], dim=1)
+                node_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=3) for feature in node_features_list], dim=3)
+                B, N, T, _ = node_feature.shape
+                vector_feature_processed = torch.zeros([B, N, T, 4]).to(node_feature.device)
+                prv_vehicle_idx = 0
+                for batch_idx in range(B):
+                    vector_feature_processed[batch_idx, :int(num_vehicles[batch_idx]) - 1, :, :] = torch.repeat_interleave(torch.unsqueeze(vector_feature[int(prv_vehicle_idx):int(prv_vehicle_idx + num_vehicles[batch_idx] - 1), :], dim = 1), repeats=T, dim=1)
+                    prv_vehicle_idx += num_vehicles[batch_idx]
+                trajs = torch.cat([node_feature, vector_feature_processed], dim=3)
+                return trajs
+            obs_traj = get_trajs(input_dict)
+            occ_traj = obs_traj
+            # self,occupancy_map, flow_map, road_map, obs_traj, occ_traj
+            his_occupancy_map = his_occupancy_map.permute([0,2,3,1]) # B H W T
+            his_flow_map = his_flow_map[:,-1,:,:,:] # B H W 2
+            outputs = model(his_occupancy_map, his_flow_map, road_map, obs_traj, occ_traj)
+            pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task_config.num_waypoints)
             gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
             gt_observed_occupancy_logits = ground_truth_dict['cur/state/pred/observed_occupancy_map']
             gt_flow = ground_truth_dict['cur/state/pred/flow_map']
@@ -148,86 +166,85 @@ def model_training(gpu_id, world_size, config):
             
         scheduler.step()
         
-        ## validate
+        # ## validate
         
-        valid_loss      = MeanMetric().to(gpu_id)
-        valid_loss_occ  = MeanMetric().to(gpu_id)
-        valid_loss_flow = MeanMetric().to(gpu_id)
-        valid_loss_warp = MeanMetric().to(gpu_id)
+        # valid_loss      = MeanMetric().to(gpu_id)
+        # valid_loss_occ  = MeanMetric().to(gpu_id)
+        # valid_loss_flow = MeanMetric().to(gpu_id)
+        # valid_loss_warp = MeanMetric().to(gpu_id)
 
-        valid_metrics = OGMFlowMetrics(gpu_id, no_warp=False)
+        # valid_metrics = OGMFlowMetrics(gpu_id, no_warp=False)
 
 
-        model.eval()
+        # model.eval()
         
-        with torch.no_grad():
-            loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
-            for batch, data in loop:
-                input_dict, ground_truth_dict = training_utils.parse_data(data, gpu_id, config)
-                for key, val in input_dict.items():
-                    # print if value has nan
-                    if torch.isnan(val).any():
-                        input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
-                his_occ = input_dict['cur/state/his/observed_occupancy_map']
-                flow_origin_occupancy = his_occ[:, -1, :, :, torch.newaxis]
-                map_size = (256,128)
-                map_img = torch.zeros([1,*map_size,3]).to(gpu_id)
-                # forward pass
-                outputs = model(input_dict, map_img, training=False)
+        # with torch.no_grad():
+        #     loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
+        #     for batch, data in loop:
+        #         input_dict, ground_truth_dict = training_utils.parse_data(data, gpu_id, config)
+        #         for key, val in input_dict.items():
+        #             # print if value has nan
+        #             if torch.isnan(val).any():
+        #                 input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
+        #         his_occ = input_dict['cur/state/his/observed_occupancy_map']
+        #         flow_origin_occupancy = his_occ[:, -1, :, :, torch.newaxis]
+                
+        #         # forward pass
+        #         outputs = model(input_dict, map_img, training=False)
 
-                # compute losses
-                pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task.num_waypoints)
-                gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
-                gt_observed_occupancy_logits = ground_truth_dict['cur/state/pred/observed_occupancy_map']
-                B, T, H, W = gt_observed_occupancy_logits.shape
-                gt_occluded_occupancy_logits = gt_occluded_occupancy_logits.reshape(B, T, H, W, 1)
-                gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
+        #         # compute losses
+        #         pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task.num_waypoints)
+        #         gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
+        #         gt_observed_occupancy_logits = ground_truth_dict['cur/state/pred/observed_occupancy_map']
+        #         B, T, H, W = gt_observed_occupancy_logits.shape
+        #         gt_occluded_occupancy_logits = gt_occluded_occupancy_logits.reshape(B, T, H, W, 1)
+        #         gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
                 
-                gt_flow = ground_truth_dict['cur/state/pred/flow_map']
-                loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
-                loss_value = torch.sum(sum(loss_dict.values()))
+        #         gt_flow = ground_truth_dict['cur/state/pred/flow_map']
+        #         loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
+        #         loss_value = torch.sum(sum(loss_dict.values()))
                 
-                valid_loss.update(loss_dict['observed_xe'])
-                valid_loss_occ.update(loss_dict['occluded_xe'])
-                valid_loss_flow.update(loss_dict['flow'])
-                valid_loss_warp.update(loss_dict['flow_warp_xe'])
+        #         valid_loss.update(loss_dict['observed_xe'])
+        #         valid_loss_occ.update(loss_dict['occluded_xe'])
+        #         valid_loss_flow.update(loss_dict['flow'])
+        #         valid_loss_warp.update(loss_dict['flow_warp_xe'])
                 
-                obs_loss  = valid_loss.compute()/ogm_weight
-                occ_loss  = valid_loss_occ.compute()/occ_weight
-                flow_loss = valid_loss_flow.compute()/flow_weight
-                warp_loss = valid_loss_warp.compute()/flow_origin_weight
+        #         obs_loss  = valid_loss.compute()/ogm_weight
+        #         occ_loss  = valid_loss_occ.compute()/occ_weight
+        #         flow_loss = valid_loss_flow.compute()/flow_weight
+        #         warp_loss = valid_loss_warp.compute()/flow_origin_weight
                 
-                pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
-                pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
+        #         pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
+        #         pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
                 
-                metrics_dict = compute_occupancy_flow_metrics(config, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy, no_warp=False)
+        #         metrics_dict = compute_occupancy_flow_metrics(config, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy, no_warp=False)
 
-                valid_metrics.update(metrics_dict)
-                break
-            val_res_dict = valid_metrics.compute()
-            if gpu_id == 0:
-                logger.add_scalars(main_tag="val_metrics",
-                    tag_scalar_dict={
-                        'vehicles_observed_auc': val_res_dict['vehicles_observed_auc'],
-                        'vehicles_occluded_auc': val_res_dict['vehicles_occluded_auc'],
-                        'vehicles_observed_iou': val_res_dict['vehicles_observed_iou'],
-                        'vehicles_occluded_iou': val_res_dict['vehicles_occluded_iou'],
-                        'vehicles_flow_epe': val_res_dict['vehicles_flow_epe'],
-                        'vehicles_flow_warped_occupancy_auc': val_res_dict['vehicles_flow_warped_occupancy_auc'],
-                        'vehicles_flow_warped_occupancy_iou': val_res_dict['vehicles_flow_warped_occupancy_iou'],
-                    },
-                    global_step=global_step
-                )
+        #         valid_metrics.update(metrics_dict)
+        #         break
+        #     val_res_dict = valid_metrics.compute()
+        #     if gpu_id == 0:
+        #         logger.add_scalars(main_tag="val_metrics",
+        #             tag_scalar_dict={
+        #                 'vehicles_observed_auc': val_res_dict['vehicles_observed_auc'],
+        #                 'vehicles_occluded_auc': val_res_dict['vehicles_occluded_auc'],
+        #                 'vehicles_observed_iou': val_res_dict['vehicles_observed_iou'],
+        #                 'vehicles_occluded_iou': val_res_dict['vehicles_occluded_iou'],
+        #                 'vehicles_flow_epe': val_res_dict['vehicles_flow_epe'],
+        #                 'vehicles_flow_warped_occupancy_auc': val_res_dict['vehicles_flow_warped_occupancy_auc'],
+        #                 'vehicles_flow_warped_occupancy_iou': val_res_dict['vehicles_flow_warped_occupancy_iou'],
+        #             },
+        #             global_step=global_step
+        #         )
                 
-                logger.add_scalars(main_tag="val_loss",
-                                tag_scalar_dict={
-                                "observed_xe": obs_loss * ogm_weight,
-                                "occluded_xe": occ_loss * occ_weight,
-                                "flow": flow_loss * flow_weight,
-                                "flow_warp_xe": warp_loss * flow_origin_weight
-                                },
-                                global_step=global_step
-                    )
+        #         logger.add_scalars(main_tag="val_loss",
+        #                         tag_scalar_dict={
+        #                         "observed_xe": obs_loss * ogm_weight,
+        #                         "occluded_xe": occ_loss * occ_weight,
+        #                         "flow": flow_loss * flow_weight,
+        #                         "flow_warp_xe": warp_loss * flow_origin_weight
+        #                         },
+        #                         global_step=global_step
+        #             )
             
         if gpu_id == 0:
             if (epoch+1) % config.training.checkpoint_interval == 0:
@@ -244,7 +261,7 @@ def model_training(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('./config.json')
+    config = get_config('./config.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"
