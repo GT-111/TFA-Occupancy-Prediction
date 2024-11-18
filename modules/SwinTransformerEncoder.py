@@ -520,9 +520,9 @@ class SwinTransformerEncoder(torch.nn.Module):
                 res = torch.reshape(torch.reshape(res,[-1,init_res,init_res,dim])[:,c_b:c_e,c_b:c_e,:],[-1,crop*crop,dim])
             res_list.append(res)
         return res_list
-
+    #  occupancy_map, flow_map=None, road_map=None, training=True
     def forward(self, occupancy_map, road_map, flow_map, training=True):
-        res_list = self.forward_features(occupancy_map, road_map, flow_map, training)
+        res_list = self.forward_features(occupancy_map=occupancy_map, flow_map=flow_map, road_map=road_map, training=training)
         return res_list
 from utils.file_utils import get_config
 
@@ -533,3 +533,5 @@ if __name__=='__main__':
     road_map = torch.randn((2,256,256,3))
     flow_map = torch.randn((2,256,256,40, 2))
     res = model(occupancy_map,road_map,flow_map[:,:,:,-1,:])
+    for r in res:
+        print(r.shape)

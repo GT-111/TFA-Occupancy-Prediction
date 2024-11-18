@@ -70,11 +70,11 @@ model:
     drop_path_rate: 0.0
     # Encoder Settings
     use_flow: true
-    flow_sep: false
+    flow_sep: true
     sep_encode: true
 
     #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    no_map: true # not using the map
+    no_map: false # not using the map
 
 
     ape: true # Absolute Position Embedding
@@ -89,6 +89,7 @@ model:
       attn_drop_rate: 0.0
   
   # flow-guided multi-scale attention
+  fg_msa: true
   FlowGuidedMultiHeadSelfAttention:
   # input size should be the output size of the previous layer
     query_size: [16,16]
@@ -109,6 +110,7 @@ model:
     stage_idx: 3
     use_last_ref: False
     fg: true
+
   TrajNetCrossAttention:
     pic_size: [16, 16]
     pic_dim : 384
@@ -121,3 +123,14 @@ model:
       out_dim: 384
       node_feature_dim: 12
       vector_feature_dim: 4
+
+  Pyramid3DDecoder:
+    pic_dim : 384
+    use_pyramid: True
+    timestep_split: True
+    shallow_decode: 1 # (4-len(cfg['depths'][:])),
+    flow_sep_decode: True
+    conv_cnn: False
+    stp_grad: False
+    rep_res: True
+    sep_conv: False
