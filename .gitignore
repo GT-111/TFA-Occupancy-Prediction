@@ -7,3 +7,5 @@ __pycache__/
 *.mp4
 *.pth
 *.parquet
+test*
+*.pt

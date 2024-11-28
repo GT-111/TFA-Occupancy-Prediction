@@ -4,41 +4,55 @@ from dataset.I24Dataset import I24Dataset
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.colors import LinearSegmentedColormap
+from utils.dataset_utils import get_road_map
 import flow_vis
 import numpy as np
-
-def process_data_for_visualization(data_dic):
-    prv_data_dic = data_dic['prv']
-    cur_data_dic = data_dic['cur']
-    nxt_data_dic = data_dic['nxt']
-    prv_scene_occ_ogm, prv_scene_obs_ogm, prv_scene_flow_map = gridmap.get_map_flow(prv_data_dic)
-    cur_scene_occ_ogm, cur_scene_obs_ogm, cur_scene_flow_map = gridmap.get_map_flow(cur_data_dic)
-    nxt_scene_occ_ogm, nxt_scene_obs_ogm, nxt_scene_flow_map = gridmap.get_map_flow(nxt_data_dic)
-    prv_scene_occ_ogm, prv_scene_obs_ogm, prv_scene_flow_map = prv_scene_occ_ogm.swapaxes(-2, -1), prv_scene_obs_ogm.swapaxes(-2, -1), prv_scene_flow_map.swapaxes(-2, -3)
-    cur_scene_occ_ogm, cur_scene_obs_ogm, cur_scene_flow_map = cur_scene_occ_ogm.swapaxes(-2, -1), cur_scene_obs_ogm.swapaxes(-2, -1), cur_scene_flow_map.swapaxes(-2, -3)
-    nxt_scene_occ_ogm, nxt_scene_obs_ogm, nxt_scene_flow_map = nxt_scene_occ_ogm.swapaxes(-2, -1), nxt_scene_obs_ogm.swapaxes(-2, -1), nxt_scene_flow_map.swapaxes(-2, -3)
-    # change dtype to float32
-    prv_scene_occ_ogm = prv_scene_occ_ogm.astype(np.float32)
-    cur_scene_occ_ogm = cur_scene_occ_ogm.astype(np.float32)
-    nxt_scene_occ_ogm = nxt_scene_occ_ogm.astype(np.float32)
+import typing
+def process_data_for_visualization(config, data_dic, ground_truth=True, pred_dict=None, valid_dict=None):
+    grid_size_x = config.occupancy_flow_map.grid_size.x
+    grid_size_y = config.occupancy_flow_map.grid_size.y
+    history_data_dic = typing.DefaultDict(dict)
+    future_data_dic = typing.DefaultDict(dict)
+    if 'prv' in valid_dict:
+        history_data_dic['prv']['occupancy_map'] = data_dic['prv/state/his/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+        history_data_dic['prv']['flow_map'] = data_dic['prv/state/his/flow_map'].swapaxes(-2, -3).astype(np.float32)
+        history_data_dic['prv']['flow_map_rendered'] = np.sum(history_data_dic['prv']['flow_map'], axis=0)
     
-    prv_scene_obs_ogm = prv_scene_obs_ogm.astype(np.float32)
-    cur_scene_obs_ogm = cur_scene_obs_ogm.astype(np.float32)
-    nxt_scene_obs_ogm = nxt_scene_obs_ogm.astype(np.float32)
+    if 'cur' in valid_dict:
+        history_data_dic['cur']['occupancy_map'] = data_dic['cur/state/his/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+        history_data_dic['cur']['flow_map'] = data_dic['cur/state/his/flow_map'].swapaxes(-2, -3).astype(np.float32)
+        history_data_dic['cur']['flow_map_rendered'] = np.sum(history_data_dic['cur']['flow_map'], axis=0)
+        
+    if 'nxt' in valid_dict:
+        history_data_dic['nxt']['occupancy_map'] = data_dic['nxt/state/his/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+        history_data_dic['nxt']['flow_map'] = data_dic['nxt/state/his/flow_map'].swapaxes(-2, -3).astype(np.float32)
+        history_data_dic['nxt']['flow_map_rendered'] = np.sum(history_data_dic['nxt']['flow_map'], axis=0)
+    if ground_truth:
+        if 'prv' in valid_dict:
+            future_data_dic['prv']['occupancy_map'] = data_dic['prv/state/pred/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+            future_data_dic['prv']['flow_map'] = data_dic['prv/state/pred/flow_map'].swapaxes(-2, -3).astype(np.float32)
+            future_data_dic['prv']['flow_map_rendered'] = np.sum(future_data_dic['prv']['flow_map'], axis=0)
+        if 'cur' in valid_dict:
+            future_data_dic['cur']['occupancy_map'] = data_dic['cur/state/pred/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+            future_data_dic['cur']['flow_map'] = data_dic['cur/state/pred/flow_map'].swapaxes(-2, -3).astype(np.float32)
+            future_data_dic['cur']['flow_map_rendered'] = np.sum(future_data_dic['cur']['flow_map'], axis=0)
+        if 'nxt' in valid_dict:
+            future_data_dic['nxt']['occupancy_map'] = data_dic['nxt/state/pred/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+            future_data_dic['nxt']['flow_map'] = data_dic['nxt/state/pred/flow_map'].swapaxes(-2, -3).astype(np.float32)
+            future_data_dic['nxt']['flow_map_rendered'] = np.sum(future_data_dic['nxt']['flow_map'], axis=0)
+    else:
+        pass
 
 
 
-    x = np.arange(0, cur_scene_flow_map.shape[2])  # X-axis points (256)
-    y = np.arange(0, cur_scene_flow_map.shape[1])  # Y-axis points (128)
+    x = np.arange(0, grid_size_x)  # X-axis points (256)
+    y = np.arange(0, grid_size_y)  # Y-axis points (128)
     X, Y = np.meshgrid(x, y)
 
 
 
-    prv_scene_flow_map_rendered = np.sum(prv_scene_flow_map, axis=0)
-    cur_scene_flow_map_rendered = np.sum(cur_scene_flow_map, axis=0)
-    nxt_scene_flow_map_rendered = np.sum(nxt_scene_flow_map, axis=0)
     
-    return X, Y, prv_scene_occ_ogm, cur_scene_occ_ogm, nxt_scene_occ_ogm, prv_scene_obs_ogm, cur_scene_obs_ogm, nxt_scene_obs_ogm, prv_scene_flow_map, cur_scene_flow_map, nxt_scene_flow_map, prv_scene_flow_map_rendered, cur_scene_flow_map_rendered, nxt_scene_flow_map_rendered
+    return X, Y, history_data_dic, future_data_dic
 
 
 def set_white_to_transparent(image):
@@ -68,19 +82,19 @@ def set_white_to_transparent(image):
 
     return rgba_image
 
-def downsample(x, y, flow_map, down_sample_x=8, down_sample_y=3):
+def downsample(x, y, flow_map, down_sample_x=1, down_sample_y=1):
     """Downsample x, y, and flow_map with different rates for x and y axes."""
     x_down = x[::down_sample_y, ::down_sample_x]
     y_down = y[::down_sample_y, ::down_sample_x]
-    flow_map_down = flow_map[:, ::down_sample_y, ::down_sample_x, :]
+    flow_map_down = flow_map[::down_sample_y, ::down_sample_x, :]
     return x_down, y_down, flow_map_down
 
 def initialize_quiver(ax, flow_map, x, y):
     """Initialize the quiver plot with downsampled data."""
     x, y, flow_map = downsample(x, y, flow_map)
-    mask = (flow_map[0, ..., 0] != 0) | (flow_map[0, ..., 1] != 0)
+    mask = (flow_map[..., 0] != 0) | (flow_map[..., 1] != 0)
     X_masked, Y_masked = x[mask], y[mask]
-    U_masked, V_masked = flow_map[0, ..., 0][mask], flow_map[0, ..., 1][mask]
+    U_masked, V_masked = flow_map[..., 0][mask], flow_map[..., 1][mask]
     return ax.quiver(X_masked, Y_masked, U_masked, V_masked, 
                      angles='xy', scale_units='xy', scale=0.25, width=0.005, color='black', alpha=0.5)
 
@@ -89,9 +103,13 @@ def get_cmap(colors):
     
     return LinearSegmentedColormap.from_list('while-colors', colors, N=256)
 
-def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True):
-    X, Y, prv_scene_occ_ogm, cur_scene_occ_ogm, nxt_scene_occ_ogm, prv_scene_obs_ogm, cur_scene_obs_ogm, nxt_scene_obs_ogm, prv_scene_flow_map, cur_scene_flow_map, nxt_scene_flow_map, prv_scene_flow_map_rendered, cur_scene_flow_map_rendered, nxt_scene_flow_map_rendered = process_data_for_visualization(data_dic)
-    num_time_steps = cur_scene_occ_ogm.shape[0]
+def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict=None):
+    X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict)
+    grid_size_x = config.occupancy_flow_map.grid_size.x
+    grid_size_y = config.occupancy_flow_map.grid_size.y
+    road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
+    num_history_time_steps = history_data_dic['cur']['occupancy_map'].shape[0]
+    num_future_time_steps = future_data_dic['cur']['occupancy_map'].shape[0]
     # Define the custom colormap: white from 0 to 0.5, then gradually red from 0.5 to 1
     colors_occ = [
         (1, 1, 1),  # White for 0
@@ -122,29 +140,38 @@ def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True
     axes[1].set_title('Current Scene')
     # axes[2].set_title('Next Scene')
     if vis_optical_flow:
-        
-        flow_rendered_prv = axes[0].imshow(flow_vis.flow_to_color(prv_scene_flow_map_rendered),interpolation='nearest', alpha=1)
-        flow_rendered_cur = axes[1].imshow(flow_vis.flow_to_color(cur_scene_flow_map_rendered),interpolation='nearest', alpha=1)
-        flow_rendered_nex = axes[2].imshow(flow_vis.flow_to_color(nxt_scene_flow_map_rendered),interpolation='nearest', alpha=1)
+        if 'prv' in valid_dict:
+            flow_rendered_prv = axes[0].imshow(flow_vis.flow_to_color(history_data_dic['prv']['flow_map_rendered']),interpolation='nearest', alpha=1)
+        if 'cur' in valid_dict:  
+            flow_rendered_cur = axes[1].imshow(flow_vis.flow_to_color(history_data_dic['cur']['flow_map_rendered']),interpolation='nearest', alpha=1)
+        if 'nxt' in valid_dict:  
+            flow_rendered_nex = axes[2].imshow(flow_vis.flow_to_color(history_data_dic['nxt']['flow_map_rendered']),interpolation='nearest', alpha=1)
     # Initialize the occupancy map with the first frame's data
     if vis_occ:
         
-        img_prv_occ_ogm = axes[0].imshow(prv_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-        img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-        img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-        img_prv_obs_ogm = axes[0].imshow(prv_scene_obs_ogm[0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
-        img_cur_obs_ogm = axes[1].imshow(cur_scene_obs_ogm[0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
-        img_nxt_obs_ogm = axes[2].imshow(nxt_scene_obs_ogm[0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+        # img_prv_occ_ogm = axes[0].imshow(prv_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        # img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        # img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        if 'prv' in valid_dict:  
+            img_prv_obs_ogm = axes[0].imshow(history_data_dic['prv']['occupancy_map'][0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+        if 'cur' in valid_dict:  
+            img_cur_obs_ogm = axes[1].imshow(history_data_dic['cur']['occupancy_map'][0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+        if 'nxt' in valid_dict:
+            img_nxt_obs_ogm = axes[2].imshow(history_data_dic['nxt']['occupancy_map'][0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
     if vis_flow:
-        quiver_prv = initialize_quiver(axes[0], prv_scene_flow_map, X, Y)
-        quiver_cur = initialize_quiver(axes[1], cur_scene_flow_map, X, Y)
-        quiver_nxt = initialize_quiver(axes[2], nxt_scene_flow_map, X, Y)
-
-    road_lines_y = [12, 24, 36, 48, 60, -12, -24, -36, -48, -60]
+        if 'prv' in valid_dict:  
+            quiver_prv = initialize_quiver(axes[0], history_data_dic['prv']['flow_map'][0], X, Y)
+        if 'cur' in valid_dict:  
+            quiver_cur = initialize_quiver(axes[1], history_data_dic['cur']['flow_map'][0], X, Y)
+        if 'nxt' in valid_dict:  
+            quiver_nxt = initialize_quiver(axes[2], history_data_dic['nxt']['flow_map'][0], X, Y)
+    
+    
     # Animation update function
     def update(frame):
         """Update both the quiver plot and the occupancy map for each frame."""
         # Update occupancy map
+        
         for ax in axes:
             ax.clear()
             ax.axis('off')
@@ -154,49 +181,80 @@ def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True
         axes[0].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)
         axes[1].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)
         axes[2].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)   
-
+        if frame <= num_history_time_steps - 1:
+            data_dic = history_data_dic
+        else:
+            data_dic = future_data_dic
+            frame = frame - num_history_time_steps
+            # set the title for the future scene
+            # set the big title for the future scene
+            fig.suptitle('Future Scene', fontsize=16)
+            axes[0].set_title('Previous Scene')
+            axes[1].set_title('Current Scene')
+            axes[2].set_title('Next Scene')
+        
+        img_road_map = axes[1].imshow(road_map)
+        
+        
         if vis_optical_flow:
-            flow_rendered_prv = axes[0].imshow(flow_vis.flow_to_color(prv_scene_flow_map_rendered),interpolation='nearest', alpha=1)
-            flow_rendered_cur = axes[1].imshow(flow_vis.flow_to_color(cur_scene_flow_map_rendered),interpolation='nearest', alpha=1)
-            flow_rendered_nex = axes[2].imshow(flow_vis.flow_to_color(nxt_scene_flow_map_rendered),interpolation='nearest', alpha=1)
+            if 'prv' in valid_dict: 
+                flow_rendered_prv = axes[0].imshow(flow_vis.flow_to_color(data_dic['prv']['flow_map_rendered']),interpolation='nearest', alpha=1)
+            if 'cur' in valid_dict: 
+                flow_rendered_cur = axes[1].imshow(flow_vis.flow_to_color(data_dic['cur']['flow_map_rendered']),interpolation='nearest', alpha=1)
+            if 'nxt' in valid_dict: 
+                flow_rendered_nex = axes[2].imshow(flow_vis.flow_to_color(data_dic['nxt']['flow_map_rendered']),interpolation='nearest', alpha=1)
             
         # Initialize the occupancy map with the first frame's data
         if vis_occ:
             
-            img_prv_occ_ogm = axes[0].imshow(prv_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-            img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-            img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-            img_prv_obs_ogm = axes[0].imshow(prv_scene_obs_ogm[frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
-            img_cur_obs_ogm = axes[1].imshow(cur_scene_obs_ogm[frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
-            img_nxt_obs_ogm = axes[2].imshow(nxt_scene_obs_ogm[frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            # img_prv_occ_ogm = axes[0].imshow(prv_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            # img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            # img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            if 'prv' in valid_dict: 
+                img_prv_obs_ogm = axes[0].imshow(data_dic['prv']['occupancy_map'][frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            if 'cur' in valid_dict: 
+                img_cur_obs_ogm = axes[1].imshow(data_dic['cur']['occupancy_map'][frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            if 'nxt' in valid_dict: 
+                img_nxt_obs_ogm = axes[2].imshow(data_dic['nxt']['occupancy_map'][frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
             
-        def create_quiver(ax, flow_map, x, y):
-            x, y, flow_map = downsample(x, y, flow_map)
-            mask = (flow_map[frame, ..., 0] != 0) | (flow_map[frame, ..., 1] != 0)
-            X_masked, Y_masked = x[mask], y[mask]
-            U_masked, V_masked = flow_map[frame, ..., 0][mask], flow_map[frame,..., 1][mask]
-            return ax.quiver(X_masked, Y_masked, U_masked, V_masked,
-                             angles='xy', scale_units='xy', scale=0.25, width = 0.005, color='black', alpha=0.5)
+
         if vis_flow:
-            quiver_prv = create_quiver(axes[0], prv_scene_flow_map, X, Y)
-            quiver_cur = create_quiver(axes[1], cur_scene_flow_map, X, Y)
-            quiver_nxt = create_quiver(axes[2], nxt_scene_flow_map, X, Y)
-        for ax in axes:
-            for road_line_y in road_lines_y:
-                y_coord = road_line_y * grid_size_y / 160 + grid_size_y / 2
-                ax.hlines(
-                    y=y_coord, xmin=0, xmax=grid_size_x,  # Start and end points on the x-axis
-                    colors='black', linewidth=1
-                )
-        #
+            if 'prv' in valid_dict: 
+                quiver_prv = initialize_quiver(axes[0], data_dic['prv']['flow_map'][frame], X, Y)
+            if 'cur' in valid_dict: 
+                quiver_cur = initialize_quiver(axes[1], data_dic['cur']['flow_map'][frame], X, Y)
+            if 'nxt' in valid_dict: 
+                quiver_nxt = initialize_quiver(axes[2], data_dic['nxt']['flow_map'][frame], X, Y)
+        
+        return_list = [img_road_map]
         if vis_flow:
-            return [quiver_prv, quiver_cur, quiver_nxt]
-        else:
-            return [img_prv_occ_ogm, img_cur_occ_ogm, img_nxt_occ_ogm, img_prv_obs_ogm, img_cur_obs_ogm, img_nxt_obs_ogm, flow_rendered_prv, flow_rendered_cur, flow_rendered_nex]
+            if 'prv' in valid_dict: 
+                return_list.extend([quiver_prv])
+            if 'nxt' in valid_dict: 
+                return_list.extend([quiver_nxt])
+            if 'prv' in valid_dict: 
+                return_list.extend([quiver_cur])
+        if vis_optical_flow:
+            # return_list.extend([flow_rendered_prv, flow_rendered_cur, flow_rendered_nex])
+            if 'prv' in valid_dict: 
+                return_list.extend([flow_rendered_prv])
+            if 'cur' in valid_dict:
+                return_list.extend([flow_rendered_cur])
+            if 'nxt' in valid_dict:
+                return_list.extend([flow_rendered_nex])
+        if vis_occ:
+            # return_list.extend([img_prv_obs_ogm, img_cur_obs_ogm, img_nxt_obs_ogm])
+            if 'prv' in valid_dict: 
+                return_list.extend([img_prv_obs_ogm])
+            if 'cur' in valid_dict:
+                return_list.extend([img_cur_obs_ogm])
+            if 'nxt' in valid_dict:
+                return_list.extend([img_nxt_obs_ogm])
+        return return_list
 
     # Create the animation
 
-    ani = animation.FuncAnimation(fig, update, frames=num_time_steps, interval=50, blit=True)
+    ani = animation.FuncAnimation(fig, update, frames=num_history_time_steps + num_future_time_steps, interval=200, blit=True)
 
     # Save the animation without padding or extra margins
     if vis_occ:
@@ -205,15 +263,14 @@ def visualize(data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True
         name = name + '_flow'
     if vis_optical_flow:
         name = name + '_optical_flow'
-    ani.save(name + '.mp4', writer='ffmpeg', fps=20, dpi=300)
+    ani.save(name + '.mp4', writer='ffmpeg', fps=2, dpi=300)
 
 
 if __name__ == '__main__':
     config = get_config()
     gridmap = GridMap(config)
     dataset = I24Dataset(config)
-    grid_size_x = config.dataset.grid_size_x
-    grid_size_y = config.dataset.grid_size_y
-    name = "scene_19915"
-    test_data = np.load(config.dataset.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-    visualize(test_data, name, vis_occ=False, vis_flow=True, vis_optical_flow=False)
+    
+    name = "scene_641760"
+    test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
+    visualize(config, test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict={'cur': 1})

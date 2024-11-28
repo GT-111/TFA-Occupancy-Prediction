@@ -161,7 +161,7 @@ def get_dataloader(config):
     
     return train_dataloader, val_dataloader, test_dataloader
 
-def get_road_map(config):
+def get_road_map(config, batch_first=True):
     batch_size = config.dataloader_config.batch_size
     grid_size_x = config.occupancy_flow_map.grid_size.x
     grid_size_y = config.occupancy_flow_map.grid_size.y
@@ -193,8 +193,9 @@ def get_road_map(config):
     # set the road boundaries
     base_img[:, road_boundaries_north, :] = 0
     base_img[:, road_boundaries_south, :] = 0
-    base_img = base_img[None, :, :, :]
-    base_img = np.repeat(base_img, batch_size, axis=0)
+    if batch_first:
+        base_img = base_img[None, :, :, :]
+        base_img = np.repeat(base_img, batch_size, axis=0)
     
     return base_img
 

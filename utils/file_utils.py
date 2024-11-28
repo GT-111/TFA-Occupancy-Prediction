@@ -21,7 +21,7 @@ def get_npy_files(processed_data_path = './processed_data'):
 
     return files
 
-def get_config (config_file = './config.json'):
+def get_config (config_file = './config.yaml'):
     # Load config file
     # if config is end with .json
     if config_file.endswith('.json'):

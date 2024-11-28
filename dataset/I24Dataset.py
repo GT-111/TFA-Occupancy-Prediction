@@ -19,7 +19,7 @@ class I24Dataset(Dataset):
     
     def __len__(self):
         return len(self.data_files)
-
+    
     def __getitem__(self, idx):
         data_dic = np.load(self.data_files[idx], allow_pickle=True).item()
         

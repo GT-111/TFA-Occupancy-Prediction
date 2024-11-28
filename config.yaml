@@ -11,10 +11,10 @@ data_attributes:
   end_position: 63.5
 
 preprocessing:
-  spatial_stride: 320
-  spatial_window: 320
-  temporal_stride: 160
-  temporal_window: 160
+  spatial_stride: 75
+  spatial_window: 300
+  temporal_stride: 35
+  temporal_window: 140
   agent_points:
     per_side_length: 48
     per_side_width: 16
@@ -31,30 +31,28 @@ dataset_splits:
 
 dataloader_config:
   num_workers: 1
-  batch_size: 2
-  shuffle: false
+  batch_size: 1
+  shuffle: true
 
 task_config:
-  history_length: 40
+  history_length: 20
+  num_his_points: 10
   prediction_length: 120
-  num_waypoints: 12
+  num_waypoints: 24
 
 training_settings:
   checkpoint_interval: 1
   epochs: 20
   optimizer:
-    learning_rate: 0.0001
+    learning_rate: 0.0005
     weight_decay: 0.0001
   scheduler:
     step_size: 3
     gamma: 0.5
-  loss_function:
-    type: "L2"
-    weight: 1.0
 
 model:
   input_size: [256, 256]  
-  history_length: 40
+  history_length: 30
   transformer_depths: [2, 2, 2]
   # Ouput channel: input // 2^depths[0] // 2^depths[1] // 2^depths[2]... e.g. 256 // 2^2 // 2^2 // 2^2 = 16
   swin_transformer:
@@ -94,11 +92,11 @@ model:
   # input size should be the output size of the previous layer
     query_size: [16,16]
     key_value_size: [16,16]
-    num_attention_heads: 12
+    num_attention_heads: 24
     num_attention_head_channels: 32
-    num_groups: 12
-    input_dimension: 384
-    output_dimension: 384
+    num_groups: 24
+    input_dimension: 768
+    output_dimension: 768
     attn_drop: 0.
     proj_drop: 0.
     stride: 1
@@ -113,19 +111,19 @@ model:
 
   TrajNetCrossAttention:
     pic_size: [16, 16]
-    pic_dim : 384
+    pic_dim : 768
     sep_actors: false
     TrajNet:
       no_attention: false
       double_net: false
       traj_heads: 4
       att_heads: 6
-      out_dim: 384
+      out_dim: 768
       node_feature_dim: 6
       vector_feature_dim: 4
 
   Pyramid3DDecoder:
-    pic_dim : 384
+    pic_dim : 768
     use_pyramid: True
     timestep_split: True
     shallow_decode: 1 # (4-len(cfg['depths'][:])),

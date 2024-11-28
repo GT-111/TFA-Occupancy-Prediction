@@ -7,8 +7,8 @@ import time
 config = get_config()
 
 grid_map = GridMap(config)
-start_pos = config.data_attr.start_pos * 5280
-end_pos = config.data_attr.end_pos * 5280  # mile to feet
+start_pos = config.data_attributes.start_position * 5280
+end_pos = config.data_attributes.end_position * 5280  # mile to feet
 data_df = pd.read_parquet(config.paths.raw_data + '/63858a2cfb3ff533c12df166.parquet')
 x_min = max(data_df['x_position'].min(), start_pos)
 x_max = data_df['x_position'].max()
@@ -17,15 +17,15 @@ time_max = data_df['timestamp'].max()
 data_df.set_index('timestamp', inplace=True)
 data_df.sort_index(inplace=True)
 print('loaded data')
-spatial_stride = config.preprocess.spatial_stride
-temporal_stride = config.preprocess.temporal_stride
-spatial_window = config.preprocess.spatial_window
-temporal_window = config.preprocess.temporal_window
+spatial_stride = config.preprocessing.spatial_stride
+temporal_stride = config.preprocessing.temporal_stride
+spatial_window = config.preprocessing.spatial_window
+temporal_window = config.preprocessing.temporal_window
 spatial_length = int(np.floor((x_max - x_min - spatial_window) / spatial_stride))
 temporal_length = int(np.floor((time_max - time_min - temporal_window) / temporal_stride))
 
-his_len = config.task.his_len
-pred_len = config.task.pred_len
+his_len = config.task_config.history_length
+pred_len = config.task_config.prediction_length
 def get_scene_data(idx_list):
     prv_idx, cur_idx, nxt_idx = idx_list
     
@@ -141,61 +141,47 @@ def process_idx(idx):
     
     # Get feature dictionaries and add occupancy and flow maps
     prv_feature_dic, cur_feature_dic, nxt_feature_dic = get_feature_dics(idx_list)
-    # prv_feature_dic = add_occ_flow(prv_feature_dic)
-    # cur_feature_dic = add_occ_flow(cur_feature_dic)
-    # nxt_feature_dic = add_occ_flow(nxt_feature_dic)
-    result_dic = {
-        'prv': add_occ_flow(prv_feature_dic),
-        'cur': add_occ_flow(cur_feature_dic),
-        'nxt': add_occ_flow(nxt_feature_dic)
-    }
-    num_waypoints = config.task.num_waypoints
+    if cur_feature_dic['num_vehicles'] <= 2:
+        return
+    points_per_vehicle_history = (np.sum(cur_feature_dic['timestamp'][:, :config.task_config.history_length]!=0) / cur_feature_dic['num_vehicles'])/config.task_config.history_length
+    points_per_vehicle_future = (np.sum(cur_feature_dic['timestamp'][:, config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length]!=0) / cur_feature_dic['num_vehicles'])/config.task_config.prediction_length
+    # print(points_per_vehicle_history, points_per_vehicle_future)
+    if points_per_vehicle_history < 0.4 or points_per_vehicle_future < 0.4: # type: ignore
+        return
     
+    result_dic = {
+        # 'prv': add_occ_flow(prv_feature_dic),
+        'cur': add_occ_flow(cur_feature_dic),
+        # 'nxt': add_occ_flow(nxt_feature_dic)
+    }
+    num_waypoints = config.task_config.num_waypoints
+    num_his_points = config.task_config.num_his_points
     feature_dic = typing.DefaultDict(dict)
     for dic_k, dic in result_dic.items():
         for k, v in dic.items():
             if k in ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']:
                 # (Num of Agents, Timestamp
-                feature_dic[dic_k + '/state/his/' + k] = v[:, :config.task.his_len]
-                feature_dic[dic_k + '/state/pred/' + k] = v[: config.task.his_len: config.task.his_len + config.task.pred_len]
+                feature_dic[dic_k + '/state/his/' + k] = v[:, :config.task_config.history_length]
+                feature_dic[dic_k + '/state/pred/' + k] = v[:, config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length]
             elif k in ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']:
                 # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
-                feature_dic[dic_k + '/state/his/' + k] = v[:config.task.his_len,...]
-                feature_pred = v[config.task.his_len: config.task.his_len + config.task.pred_len,...]
-                timestamps= feature_pred.shape[0]
-                feature_dic[dic_k + '/state/pred/' + k] = feature_pred[::(timestamps // num_waypoints),...]
-                # pred_v = v[his_len: his_len + pred_len,...]
-                # pred_v = pred_v.reshape(-1, pred_len//10, *pred_v.shape[1:]).sum(axis=0)
-                # print(f'{k}, pred {pred_v.shape}')
+                feature_his =  v[:config.task_config.history_length,...]
+                history_timestamps= feature_his.shape[0]
+                feature_dic[dic_k + '/state/his/' + k] = feature_his[::(history_timestamps//num_his_points), ...]
+                feature_pred = v[config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length,...]
+                future_timestamps= feature_pred.shape[0]
+                feature_dic[dic_k + '/state/pred/' + k] = feature_pred[::(future_timestamps // num_waypoints),...]
+                
             else:
                 feature_dic[dic_k + '/meta/' + k] = v
-    # Create the feature dictionary to save
-    # feature_dic = typing.DefaultDict(dict)
-    # for dic_k, dic in {'prv':prv_feature_dic, 'cur': cur_feature_dic, 'nxt': nxt_feature_dic}.items():
-    #     for k, v in dic.items():
-    #         if k in ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']:
-    #             # (Num of Agents, Timestamp)
-                
-    #             feature_dic[dic_k + '/state/his/' + k] = v[:, :his_len]
-    #             feature_dic[dic_k + '/state/pred/' + k] = v[: his_len: his_len + pred_len]
-    #         # elif k in ['occupancy_map', 'flow_map']:
-    #         #     # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
-    #         #     feature_dic[dic_k + '/state/his/' + k] = v[:his_len,...]
-    #         #     feature_dic[dic_k + '/state/pred/' + k] = v[his_len: his_len + pred_len,...]
-    #             # pred_v = v[his_len: his_len + pred_len,...]
-    #             # pred_v = pred_v.reshape(-1, pred_len//10, *pred_v.shape[1:]).sum(axis=0)
-    #             # print(f'{k}, pred {pred_v.shape}')
-                
-    #         else:
-    #             feature_dic[dic_k + '/meta/' + k] = v
-    
-    # Save the feature dictionary
+
     np.save(f'{config.paths.processed_data}/scene_{idx}', feature_dic)
 
 # # # Number of threads to use
-num_threads = 20
-# total_len = spatial_length * temporal_length
-total_len = 100000
+num_threads = 30
+total_len = spatial_length * temporal_length
+print(total_len)
+total_len = 1500000
 # Create ThreadPoolExecutor to parallelize the processing of idx
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress

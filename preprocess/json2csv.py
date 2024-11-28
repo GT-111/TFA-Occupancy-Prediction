@@ -58,7 +58,7 @@ def process_record(record, start_time_stamp, keys_to_use):
     
     record_dic['timestamp'] = (record_dic['timestamp'] - start_time_stamp)
     
-    record_dic['timestamp'] = np.round((record_dic['timestamp'] - record_dic['timestamp'][0] % (1 / config.data_attr.data_sample_frequency)) * config.data_attr.data_sample_frequency)
+    record_dic['timestamp'] = np.round((record_dic['timestamp'] - record_dic['timestamp'][0] % (1 / config.data_attributes.sample_frequency)) * config.data_attributes.sample_frequency)
     record_df = pd.DataFrame(record_dic, columns=keys_to_use).set_index('timestamp')
     
     record_df = record_df.reindex(pd.RangeIndex(start=record_df.index.min(), stop=record_df.index.max() + 1))
@@ -91,6 +91,19 @@ def json2csv(config, keys_to_use, duration_dict):
         
         print(f'{file_name} processed')
         break
+def json2csv(config, keys_to_use, duration_dict, file_path, output_path):
+    
+    # print(raw_data_files)
+    
+        
+    result_df, file_name = process_file(file_path, keys_to_use, duration_dict)
+    path = output_path + file_name + '.parquet'
+    
+    result_df.to_parquet(path)
+    
+    
+    print(f'{file_name} processed')
+    
 
 if __name__ == '__main__':
     config = get_config()
@@ -120,4 +133,5 @@ if __name__ == '__main__':
                     # 'x_score', 
                     # 'y_score'
                     ]
-    json2csv(config, keys_to_use, duration_dict)
+    # json2csv(config, keys_to_use, duration_dict)
+    json2csv(config, keys_to_use, duration_dict, '/media/thing1/T9/HetianGuo/I24Motion/raw_data/637b023440527bf2daa5932f__post1.json', './raw_data/')
