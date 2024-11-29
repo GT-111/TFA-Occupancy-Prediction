@@ -273,4 +273,4 @@ if __name__ == '__main__':
     
     name = "scene_641760"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-    visualize(config, test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict={'cur': 1})
+    visualize(config, test_data, name, vis_occ=True, vis_flow=False, vis_optical_flow=True, valid_dict={'cur': 1})

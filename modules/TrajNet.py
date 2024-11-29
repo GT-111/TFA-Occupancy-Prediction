@@ -197,7 +197,10 @@ class TrajNetCrossAttention(nn.Module):
         self.sep_actors = config.model.TrajNetCrossAttention.sep_actors
         
         self.num_waypoints = config.task_config.num_waypoints
-        self.cross_attn_obs = nn.ModuleList([Cross_AttentionT(num_heads=3, output_dim=self.pic_dim,key_dim=128,sep_actors=self.sep_actors) for _ in range(self.num_waypoints)])
+        self.cross_attn_obs = nn.ModuleList([Cross_AttentionT(num_heads=config.model.TrajNetCrossAttention.TrajNet.CrossAttention.num_heads, 
+                                                              output_dim=self.pic_dim,key_dim=config.model.TrajNetCrossAttention.TrajNet.CrossAttention.key_dimension,
+                                                              sep_actors=self.sep_actors) 
+                                             for _ in range(self.num_waypoints)])
 
 
 

@@ -52,7 +52,7 @@ def compute_occupancy_flow_metrics(
     )
 
   # Iterate over waypoints.
-  for k in range(config.task.num_waypoints):
+  for k in range(config.task_config.num_waypoints):
     pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
     pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
     pred_flow = pred_flow_logits[:,k]
@@ -226,8 +226,8 @@ def _flow_warp(
 
   device = flow_origin_occupancy.device
 
-  h = torch.arange(0, config.occ_flow_map.grid_size_y, dtype=torch.float32, device=device)
-  w = torch.arange(0, config.occ_flow_map.grid_size_x, dtype=torch.float32, device=device)
+  h = torch.arange(0, config.occupancy_flow_map.grid_size.y, dtype=torch.float32, device=device)
+  w = torch.arange(0, config.occupancy_flow_map.grid_size.x, dtype=torch.float32, device=device)
   h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
   # These indices map each (x, y) location to (x, y).
   # [height, width, 2] but storing x, y coordinates.
@@ -240,7 +240,7 @@ def _flow_warp(
   )
 
   warped_flow_origins = []
-  for k in range(config.task.num_waypoints):
+  for k in range(config.task_config.num_waypoints):
     # [batch_size, height, width, 1]
     # [batch_size, height, width, 2]
     pred_flow = pred_flow_logits[:, k]

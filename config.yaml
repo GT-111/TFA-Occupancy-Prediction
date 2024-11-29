@@ -30,8 +30,8 @@ dataset_splits:
   test_ratio: 0.1
 
 dataloader_config:
-  num_workers: 1
-  batch_size: 1
+  num_workers: 8
+  batch_size: 4
   shuffle: true
 
 task_config:
@@ -52,16 +52,16 @@ training_settings:
 
 model:
   input_size: [256, 256]  
-  history_length: 30
+  history_length: 10 #  should be the same as task_config.num_his_points
   transformer_depths: [2, 2, 2]
   # Ouput channel: input // 2^depths[0] // 2^depths[1] // 2^depths[2]... e.g. 256 // 2^2 // 2^2 // 2^2 = 16
   swin_transformer:
     # Swin Transformer parameters
     patch_size: [4, 4]
-    embed_dim: 96
+    embed_dim: 192 
     
     window_size: 8
-    embedding_dimension: 96
+    embedding_dimension: 192
     
     attention_heads: [3, 6, 12]
     mlp_ratio: 4. # hiden size ratio
@@ -95,7 +95,7 @@ model:
     num_attention_heads: 24
     num_attention_head_channels: 32
     num_groups: 24
-    input_dimension: 768
+    input_dimension: 768 # 4 * swin_transformer.embed_dim
     output_dimension: 768
     attn_drop: 0.
     proj_drop: 0.
@@ -114,6 +114,10 @@ model:
     pic_dim : 768
     sep_actors: false
     TrajNet:
+      CrossAttention:
+      # key dimension * num heads should be the same as the input dimension
+        key_dimension: 256
+        num_heads: 3
       no_attention: false
       double_net: false
       traj_heads: 4

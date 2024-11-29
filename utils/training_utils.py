@@ -12,7 +12,8 @@ def parse_data(data, gpu_id, config):
     state_to_predict = ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
     state_keys = []
     state_to_predict_keys = []
-    for scene_key in ['prv', 'cur', 'nxt']:
+    # for scene_key in ['prv', 'cur', 'nxt']:
+    for scene_key in ['cur']:
         for key in meta_array:
             meta_keys.append(f'{scene_key}/meta/{key}')
         for key in state:

@@ -76,7 +76,8 @@ def process_batch(batch_list):
     state_keys = []
     meta_scalar_keys = []
     meta_array_keys = []
-    for scene_key in ['prv', 'cur', 'nxt']:
+    # for scene_key in ['prv', 'cur', 'nxt']:
+    for scene_key in ['cur']:
         for key in meta_scalar:
             key = f'{scene_key}/meta/{key}'
             meta_scalar_keys.append(key)
@@ -160,6 +161,28 @@ def get_dataloader(config):
     test_dataloader = DataLoader(test_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
     
     return train_dataloader, val_dataloader, test_dataloader
+
+
+def get_trajs(input_dict, config):
+    num_vehicles = input_dict['cur/meta/num_vehicles']
+    vector_features_list = ['cur/meta/length', 'cur/meta/width', 'cur/meta/class', 'cur/meta/direction']
+    node_features_list = ['cur/state/his/timestamp', 'cur/state/his/x_position', 'cur/state/his/y_position', 'cur/state/his/x_velocity', 'cur/state/his/y_velocity', 'cur/state/his/yaw_angle',]
+    obs_idx = (input_dict['cur/state/his/timestamp'] > 0)[...,-1]
+    vector_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=1) for feature in vector_features_list], dim=1)
+    node_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=3) for feature in node_features_list], dim=3)
+    B, N, T, _ = node_feature.shape
+    vector_feature_processed = torch.zeros([B, N, T, 4]).to(node_feature.device)
+    prv_vehicle_idx = 0
+    for batch_idx in range(B):
+        vector_feature_processed[batch_idx, :int(num_vehicles[batch_idx]) - 1, :, :] = torch.repeat_interleave(torch.unsqueeze(vector_feature[int(prv_vehicle_idx):int(prv_vehicle_idx + num_vehicles[batch_idx] - 1), :], dim = 1), repeats=T, dim=1)
+        prv_vehicle_idx += num_vehicles[batch_idx]
+    trajs = torch.cat([node_feature, vector_feature_processed], dim=3)
+    obs_trajs = torch.zeros_like(trajs)
+    occ_trajs = torch.zeros_like(trajs)
+    obs_trajs[obs_idx] = trajs[obs_idx]
+    occ_trajs[~obs_idx] = trajs[~obs_idx]
+    return obs_trajs, occ_trajs
+
 
 def get_road_map(config, batch_first=True):
     batch_size = config.dataloader_config.batch_size
