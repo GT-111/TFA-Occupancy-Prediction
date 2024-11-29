@@ -14,8 +14,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
-ogm_weight  = 100
-occ_weight  = 100
+ogm_weight  = 200
+occ_weight  = 200
 flow_weight = 1.0
 flow_origin_weight = 500
 
@@ -52,12 +52,13 @@ def setup(config, gpu_id):
     
     optimizer = torch.optim.NAdam(params=model.parameters(), 
                                   lr=config.training_settings.optimizer.learning_rate,
-                                  weight_decay=config.training_settings.optimizer.weight_decay) 
+                                #   weight_decay=config.training_settings.optimizer.weight_decay
+                                ) 
     
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optimizer, 
                                                 step_size=config.training_settings.scheduler.step_size,
                                                 gamma=config.training_settings.scheduler.gamma) 
-    
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 3, 0.5) 
     return model, loss_fn, optimizer, scheduler
 
 
@@ -100,7 +101,7 @@ def model_training(gpu_id, world_size, config):
         train_dataloader.sampler.set_epoch(epoch)
         loop = tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch, data in loop:
-            break
+            
             input_dict, ground_truth_dict = training_utils.parse_data(data, gpu_id, config)
             for key, val in input_dict.items():
                 # print if value has nan
@@ -212,7 +213,7 @@ def model_training(gpu_id, world_size, config):
                 metrics_dict = compute_occupancy_flow_metrics(config, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy, no_warp=False)
 
                 valid_metrics.update(metrics_dict)
-                break
+                
             val_res_dict = valid_metrics.compute()
             if gpu_id == 0:
                 logger.add_scalars(main_tag="val_metrics",

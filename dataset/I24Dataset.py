@@ -8,7 +8,7 @@ class I24Dataset(Dataset):
     def __init__(self, config):
         self.config = config
         self.grid_map = GridMap(config)
-        self.data_files = get_npy_files(config.paths.processed_data)
+        self.data_files = get_npy_files(config.paths.processed_data)[:config.dataloader_config.total_samples]
         
     def add_occ_flow(self, feature_dic):
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map.get_map_flow(feature_dic)
