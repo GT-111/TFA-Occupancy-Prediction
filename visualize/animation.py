@@ -13,6 +13,8 @@ def process_data_for_visualization(config, data_dic, ground_truth=True, pred_dic
     grid_size_y = config.occupancy_flow_map.grid_size.y
     history_data_dic = typing.DefaultDict(dict)
     future_data_dic = typing.DefaultDict(dict)
+    # Flow map (T, W, H, 2)
+    # Occupancy map (T, W, H)
     if 'prv' in valid_dict:
         history_data_dic['prv']['occupancy_map'] = data_dic['prv/state/his/observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
         history_data_dic['prv']['flow_map'] = data_dic['prv/state/his/flow_map'].swapaxes(-2, -3).astype(np.float32)
@@ -41,7 +43,10 @@ def process_data_for_visualization(config, data_dic, ground_truth=True, pred_dic
             future_data_dic['nxt']['flow_map'] = data_dic['nxt/state/pred/flow_map'].swapaxes(-2, -3).astype(np.float32)
             future_data_dic['nxt']['flow_map_rendered'] = np.sum(future_data_dic['nxt']['flow_map'], axis=0)
     else:
-        pass
+        if 'cur' in valid_dict:
+            future_data_dic['cur']['occupancy_map'] = pred_dict['observed_occupancy_map'].swapaxes(-2, -1).astype(np.float32)
+            future_data_dic['cur']['flow_map'] = pred_dict['flow_map'].swapaxes(-2, -3).astype(np.float32)
+            future_data_dic['cur']['flow_map_rendered'] = np.sum(future_data_dic['cur']['flow_map'], axis=0)
 
 
 
@@ -103,8 +108,8 @@ def get_cmap(colors):
     
     return LinearSegmentedColormap.from_list('while-colors', colors, N=256)
 
-def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict=None):
-    X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict)
+def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict=None, pred_dict=None, ground_truth=True):
+    X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict, pred_dict=pred_dict, ground_truth=ground_truth)
     grid_size_x = config.occupancy_flow_map.grid_size.x
     grid_size_y = config.occupancy_flow_map.grid_size.y
     road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
@@ -265,12 +270,47 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         name = name + '_optical_flow'
     ani.save(name + '.mp4', writer='ffmpeg', fps=2, dpi=300)
 
-
+from utils.metrics_utils import sample
+import torch
 if __name__ == '__main__':
     config = get_config()
     gridmap = GridMap(config)
     dataset = I24Dataset(config)
-    
+    k = 0
     name = "scene_641760"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-    visualize(config, test_data, name, vis_occ=True, vis_flow=False, vis_optical_flow=True, valid_dict={'cur': 1})
+    # visualize(config, test_data, name, vis_occ=False, vis_flow=True, vis_optical_flow=False, valid_dict={'cur': 1})
+    h = torch.arange(0, config.occupancy_flow_map.grid_size.y, dtype=torch.float32)
+    w = torch.arange(0, config.occupancy_flow_map.grid_size.x, dtype=torch.float32)
+    h_idx, w_idx = torch.meshgrid(h, w, 
+        indexing="xy")
+    # These indices map each (x, y) location to (x, y).
+    # [height, width, 2] but storing x, y coordinates.
+    flow_origin_occupancy = torch.from_numpy(test_data['cur/state/his/observed_occupancy_map'][-1][None, :, :, None])
+    pred_occupancy_map = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[k][None, ..., None]
+    print(pred_occupancy_map.shape)
+    fig, axes = plt.subplots(1, 3, figsize=(10, 10))
+    colors_obs = [
+        (1, 1, 1),  # White for 0
+        (1, 0.8, 0.8),  # Light red for mid-range
+        (1, 0, 1)  # Red for 1
+    ]
+    cmap_obs = get_cmap(colors_obs)
+    axes[0].imshow(np.array(flow_origin_occupancy[0, ..., 0]).astype(np.float32) , cmap=cmap_obs, interpolation='nearest')
+    print(flow_origin_occupancy.shape)
+    pred_flow = torch.from_numpy(test_data['cur/state/his/flow_map'])
+    print(pred_flow.shape)
+    identity_indices = torch.stack(
+        (
+            w_idx.T,
+            h_idx.T,
+        ),dim=-1)
+    warped_indices = identity_indices + pred_flow[k][None, ...]
+    wp_origin = sample(
+        image=flow_origin_occupancy,
+        warp=warped_indices,
+        pixel_type=0,
+    )
+    axes[1].imshow(np.array(pred_occupancy_map[0, ..., 0]).astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
+    axes[2].imshow(np.array(wp_origin[0, ..., 0]).astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
+    plt.show()

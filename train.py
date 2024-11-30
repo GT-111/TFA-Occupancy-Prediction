@@ -14,10 +14,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
-ogm_weight  = 200
-occ_weight  = 200
+ogm_weight  = 500
+occ_weight  = 500
 flow_weight = 1.0
-flow_origin_weight = 500
+flow_origin_weight = 1000
 
 
 

@@ -90,18 +90,16 @@ class OGMFlow_loss():
 
 
         #Preparation for flow warping:
-        h = torch.arange(0, self.config.occupancy_flow_map.grid_size.y, dtype=torch.float32, device=device)
-        w = torch.arange(0, self.config.occupancy_flow_map.grid_size.x, dtype=torch.float32, device=device)
-        h_idx, w_idx = torch.meshgrid(h, w, 
-            indexing="xy")
+        h = torch.arange(0, self.config.occupancy_flow_map.grid_size.y, dtype=torch.float32)
+        w = torch.arange(0, self.config.occupancy_flow_map.grid_size.x, dtype=torch.float32)
+        h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
         # These indices map each (x, y) location to (x, y).
         # [height, width, 2] but storing x, y coordinates.
         identity_indices = torch.stack(
-            (
-                w_idx,
-                h_idx,
-                
-            ),dim=-1)
+        (
+            w_idx.T,
+            h_idx.T,
+        ),dim=-1)
         identity_indices = identity_indices.detach()
         # print(identity_indices.shape)
         # Iterate over waypoints.
@@ -272,7 +270,7 @@ class OGMFlow_loss():
     ) -> torch.Tensor:
         labels=self._batch_flatten(true_occupancy)
         sig_logits = self._batch_flatten(torch.sigmoid(pred_occupancy_obs)+torch.sigmoid(pred_occupancy_occ))
-        sig_logits = torch.clip_by_value(sig_logits,0,1)
+        sig_logits = torch.clamp(sig_logits,0,1)
         joint_flow_occ_logits =  self._batch_flatten(warped_origin)*sig_logits
         if self.use_focal_loss:
             xe_sum = torch.sum(self.flow_focal_loss(targets=labels,inputs=joint_flow_occ_logits)) + torch.sum(self.bce(target=labels,input=joint_flow_occ_logits))
@@ -343,10 +341,11 @@ def test_loss(config):
 
     loss_fn = OGMFlow_loss(config, replica=1, no_use_warp=False, use_pred=False, use_gt=True, use_focal_loss=True)
 
-    values = loss_fn(dummy_pred_observed_occupancy, dummy_pred_occluded_occupancy, dummy_pred_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
+    # values = loss_fn(dummy_pred_observed_occupancy, dummy_pred_occluded_occupancy, dummy_pred_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
+    values = loss_fn(dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
     print(values)
 
 
-# if __name__ == "__main__":
-#     config = get_config("./config.json")
-#     test_loss(config)
+if __name__ == "__main__":
+    config = get_config("./config.yaml")
+    test_loss(config)

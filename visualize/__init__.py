@@ -1,1 +1,1 @@
-from animation import *
+from visualize.animation import *
