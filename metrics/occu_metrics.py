@@ -13,7 +13,7 @@ def compute_occupancy_flow_metrics(
     gt_observed_occupancy_logits,
     gt_occluded_occupancy_logits,
     gt_flow_logits,
-    flow_origin_occupancy,
+    flow_origin_occupancy_logits,
     no_warp: bool=False
 ):
   """Computes occupancy (observed, occluded) and flow metrics.
@@ -48,7 +48,7 @@ def compute_occupancy_flow_metrics(
     warped_flow_origins = _flow_warp(
         config=config,
         pred_flow_logits=pred_flow_logits,
-        flow_origin_occupancy=flow_origin_occupancy,
+        flow_origin_occupancy_logits=flow_origin_occupancy_logits,
     )
 
   # Iterate over waypoints.
@@ -59,7 +59,6 @@ def compute_occupancy_flow_metrics(
     true_observed_occupancy = gt_observed_occupancy_logits[:,k]
     true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
     true_flow = gt_flow_logits[:,k]
-
     # adding this CAUSE DISTRIBUTE ERROR!!!!
     # has_true_observed_occupancy[k] = tf.reduce_max(true_observed_occupancy) > 0
     # has_true_occluded_occupancy[k] = tf.reduce_max(true_occluded_occupancy) > 0
@@ -207,7 +206,7 @@ def _compute_flow_epe(
 def _flow_warp(
     config,
     pred_flow_logits,
-    flow_origin_occupancy,
+    flow_origin_occupancy_logits,
 ) -> List[torch.Tensor]:
   """Warps ground-truth flow-origin occupancies according to predicted flows.
 
@@ -224,7 +223,7 @@ def _flow_warp(
       [batch_size, height, width, 1] tensors.
   """
 
-  device = flow_origin_occupancy.device
+  device = flow_origin_occupancy_logits.device
 
   h = torch.arange(0, config.occupancy_flow_map.grid_size.y, dtype=torch.float32, device=device)
   w = torch.arange(0, config.occupancy_flow_map.grid_size.x, dtype=torch.float32, device=device)
@@ -244,6 +243,7 @@ def _flow_warp(
     # [batch_size, height, width, 1]
     # [batch_size, height, width, 2]
     pred_flow = pred_flow_logits[:, k]
+    flow_origin_occupancy = flow_origin_occupancy_logits[:, k]
     # Shifting the identity grid indices according to predicted flow tells us
     # the source (origin) grid cell for each flow vector.  We simply sample
     # occupancy values from these locations.

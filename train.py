@@ -128,7 +128,6 @@ def model_training(gpu_id, world_size, config):
             
             loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
             loss_value = torch.sum(sum(loss_dict.values()))
-            
             # backward pass
             optimizer.zero_grad()
             loss_value.backward()
@@ -139,23 +138,22 @@ def model_training(gpu_id, world_size, config):
             train_loss_flow.update(loss_dict['flow'])
             train_loss_warp.update(loss_dict['flow_warp_xe'])
             global_step += 1
-            obs_loss  = train_loss.compute()/ogm_weight
-            occ_loss  = train_loss_occ.compute()/occ_weight
-            flow_loss = train_loss_flow.compute()/flow_weight
-            warp_loss = train_loss_warp.compute()/flow_origin_weight
+            obs_loss  = train_loss.compute()
+            occ_loss  = train_loss_occ.compute()
+            flow_loss = train_loss_flow.compute()
+            warp_loss = train_loss_warp.compute()
             if gpu_id == 0:
                 if batch % 20 == 0:
                     logger.add_scalars(main_tag="train_loss",
                                     tag_scalar_dict={
-                                        "observed_xe": obs_loss * ogm_weight,
-                                        "occluded_xe": occ_loss * occ_weight,
-                                        "flow": flow_loss * flow_weight,
-                                        "flow_warp_xe": warp_loss * flow_origin_weight,
+                                        "observed_xe": obs_loss,
+                                        "occluded_xe": occ_loss,
+                                        "flow": flow_loss,
+                                        "flow_warp_xe": warp_loss,
                                         "loss": loss_value
                                     },
                                     global_step=global_step
                                     )   
-            
         scheduler.step()
         
         ## validate
@@ -194,7 +192,7 @@ def model_training(gpu_id, world_size, config):
                 gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
                 gt_all_occupancy_logits = torch.clamp(gt_observed_occupancy_logits + gt_occluded_occupancy_logits, 0, 1)[:,:-1,...]
                 his_occupancy_map = his_occupancy_map.permute([0, 3, 1, 2]) # B H W T - > B T H W
-                flow_origin_occupancy = torch.cat([his_occupancy_map[:, -1, :, :, torch.newaxis], gt_all_occupancy_logits], dim=1)
+                flow_origin_occupancy = torch.cat([his_occupancy_map[:, -1, :, :, torch.newaxis][:,None,...], gt_all_occupancy_logits], dim=1)
                 
                 
                 
@@ -207,10 +205,10 @@ def model_training(gpu_id, world_size, config):
                 valid_loss_flow.update(loss_dict['flow'])
                 valid_loss_warp.update(loss_dict['flow_warp_xe'])
                 
-                obs_loss  = valid_loss.compute()/ogm_weight
-                occ_loss  = valid_loss_occ.compute()/occ_weight
-                flow_loss = valid_loss_flow.compute()/flow_weight
-                warp_loss = valid_loss_warp.compute()/flow_origin_weight
+                obs_loss  = valid_loss.compute()
+                occ_loss  = valid_loss_occ.compute()
+                flow_loss = valid_loss_flow.compute()
+                warp_loss = valid_loss_warp.compute()
                 
                 pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
                 pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
@@ -218,7 +216,6 @@ def model_training(gpu_id, world_size, config):
                 metrics_dict = compute_occupancy_flow_metrics(config, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy, no_warp=False)
 
                 valid_metrics.update(metrics_dict)
-                
             val_res_dict = valid_metrics.compute()
             if gpu_id == 0:
                 logger.add_scalars(main_tag="val_metrics",
@@ -236,10 +233,10 @@ def model_training(gpu_id, world_size, config):
                 
                 logger.add_scalars(main_tag="val_loss",
                                 tag_scalar_dict={
-                                "observed_xe": obs_loss * ogm_weight,
-                                "occluded_xe": occ_loss * occ_weight,
-                                "flow": flow_loss * flow_weight,
-                                "flow_warp_xe": warp_loss * flow_origin_weight
+                                "observed_xe": obs_loss,
+                                "occluded_xe": occ_loss,
+                                "flow": flow_loss,
+                                "flow_warp_xe": warp_loss,
                                 },
                                 global_step=global_step
                     )
