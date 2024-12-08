@@ -11,8 +11,20 @@ class GridMap():
         # number of agent points per side to describe the agent's occupancy
         self.agent_points_per_side_length = config.preprocessing.agent_points.per_side_length
         self.agent_points_per_side_width =config.preprocessing.agent_points.per_side_width
-        self.his_len = config.task_config.history_length
+        self.history_length = config.task_config.history_length
+        self.prediction_length = config.task_config.prediction_length
+        self.num_his_points = config.task_config.num_his_points
+        self.num_waypoints = config.task_config.num_waypoints
+        self.config = config
         
+        
+    def convert (self, coordinates):
+        # coordinates (Na, timestamps)
+        coordinates = np.concatenate([coordinates[:,:self.history_length][:, ::(self.history_length//self.num_his_points)], 
+                  coordinates[:,self.history_length: self.history_length + self.prediction_length][:,::(self.prediction_length // self.num_waypoints)]]
+                 ,axis=1
+                 )
+        return coordinates
     def get_agents_points(self, data):
         # start_pos = data['start_pos']
         # print(f'start_pos {start_pos}')
@@ -24,11 +36,14 @@ class GridMap():
     
         length = data['length'].reshape(-1, 1)
         width = data['width'].reshape(-1, 1)
-        yaw_angle = data['yaw_angle']
-        x_centers = data['x_position']
-        y_centers = data['y_position'] + self.y_range[1]  # Shift y to the positive range
+        yaw_angle = self.convert(data['yaw_angle'])
+        x_centers = self.convert(data['x_position'])
+        y_centers = self.convert(data['y_position']) + self.y_range[1]  # Shift y to the positive range
+        
+        
+        
+        
         centers = np.stack([x_centers, y_centers], axis=-1)  # Shape: (num_agents, T, 2)
-    
         num_of_agents = x_centers.shape[0]
         num_time_steps = x_centers.shape[1]
     
@@ -101,6 +116,8 @@ class GridMap():
         occupancy_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = 1
         occluded_occupancy_map = np.sum(occupancy_map[occluded_idx], axis=0)
         observed_occupancy_map = np.sum(occupancy_map[~occluded_idx], axis=0)
+        occluded_occupancy_map = np.nan_to_num(occluded_occupancy_map, nan=0.0)
+        observed_occupancy_map = np.nan_to_num(observed_occupancy_map, nan=0.0)
         return np.clip(occluded_occupancy_map, 0, 1), np.clip(observed_occupancy_map, 0, 1)
     
     def get_flow(self, num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids):
@@ -138,10 +155,10 @@ class GridMap():
     
     def get_map_flow(self, data):
         num_of_agents = data['x_position'].shape[0]
-        num_time_steps = data['x_position'].shape[1]
+        num_time_steps = self.num_his_points + self.num_waypoints
         if num_of_agents == 0:
             return  np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size, 2])
-        timestamp = data['timestamp']
+        timestamp = self.convert(data['timestamp'])
         
         vehicle_points = self.get_agents_points(data)
         num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
@@ -153,11 +170,12 @@ class GridMap():
         vehicle_grids = np.floor(vehicle_points / np.array((self.grid_size_x, self.grid_size_y))).astype(int)
         
         # Calculate the occupancy map
-        occluded_idx = np.argmax((timestamp > 0), axis=1) > self.his_len
+        occluded_idx = np.argmax((timestamp > 0), axis=1) > self.num_his_points
         num_of_agents_occluded = np.sum(occluded_idx)
         num_of_agents_observed = num_of_agents - num_of_agents_occluded
         
         occluded_occupancy_map, observed_occupancy_map= self.get_map(num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx)
+        
         # observed_occupancy_map = self.get_map(num_of_agents_observed, num_time_steps, timestamp[~occluded_idx], vehicle_grids[~occluded_idx])
         # Calculate the flow map
         flow_map = self.get_flow(num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids)
@@ -275,7 +293,7 @@ class GridMap_gpu():
         time_indices_repeated = time_indices_repeated[valid_mask]
         flow_map[agent_indices_repeated, time_indices_repeated, grid_x[valid_mask], grid_y[valid_mask]] = vehicle_points_masked.view(-1, 2)[valid_mask]
 
-        return flow_map.sum(dim=0)
+        return np.nan_to_num(flow_map.sum(dim=0))
 
     def get_map_flow(self, data):
         device = data['x_position'].device
@@ -297,7 +315,7 @@ class GridMap_gpu():
             vehicle_points = torch.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
 
         vehicle_grids = torch.floor(vehicle_points / torch.tensor([self.grid_size_x, self.grid_size_y], device=device)).int()
-        occluded_idx = torch.argmax((timestamp > 0).int(), dim=1) > self.his_len
+        occluded_idx = torch.argmax((timestamp > 0).int(), dim=1) > self.config.task_config.num_his_points
 
         occluded_occupancy_map, observed_occupancy_map = self.get_map(num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx)
         flow_map = self.get_flow(num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids)

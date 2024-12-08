@@ -63,7 +63,7 @@ class OGMFlow_loss():
         gt_observed_occupancy_logits,
         gt_occluded_occupancy_logits,
         gt_flow_logits,
-        flow_origin_occupancy,
+        flow_origin_occupancy_logits,
         
 
     ) -> Dict[str, torch.Tensor]:
@@ -79,7 +79,7 @@ class OGMFlow_loss():
             flow: Flow loss.
         """
 
-        device = flow_origin_occupancy.device
+        device = flow_origin_occupancy_logits.device
 
         loss_dict = {}
         # Store loss tensors for each waypoint and average at the end.
@@ -100,7 +100,7 @@ class OGMFlow_loss():
             w_idx.T,
             h_idx.T,
         ),dim=-1)
-        identity_indices = identity_indices.detach()
+        identity_indices = identity_indices.detach().to(device)
         # print(identity_indices.shape)
         # Iterate over waypoints.
         # flow_origin_occupancy = curr_ogm[:,128:128+256,128:128+256,tf.newaxis]
@@ -118,7 +118,9 @@ class OGMFlow_loss():
             true_observed_occupancy = gt_observed_occupancy_logits[:,k]
             true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
             true_flow = gt_flow_logits[:,k]
-  
+
+            flow_origin_occupancy = flow_origin_occupancy_logits[:,k]
+
             # Accumulate over waypoints.
             loss_dict['observed_xe'].append(
                 self._sigmoid_xe_loss(

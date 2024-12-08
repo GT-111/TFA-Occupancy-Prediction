@@ -14,7 +14,8 @@ class Pyramid3DDecoder(nn.Module):
         
 
         decode_inds = [4, 3, 2, 1, 0][self.shallow_decode:]
-        decoder_channels = [48, 96, 128, 192, 384]
+        # decoder_channels = [48, 96, 128, 192, 384]
+        decoder_channels = [96, 128, 192, 384, 768]
         self.stp_grad = config.model.Pyramid3DDecoder.stp_grad
         self.rep_res = config.model.Pyramid3DDecoder.rep_res
         self.conv_cnn = config.model.Pyramid3DDecoder.conv_cnn
@@ -87,22 +88,45 @@ class Pyramid3DDecoder(nn.Module):
                         ), nn.ELU()
                     ) for i in decode_inds[-2:]
                 ])
+            # self.res_f = nn.Sequential(
+            #     nn.Conv3d(in_channels=96, out_channels=128, kernel_size=(self.num_waypoints,1,1), padding="same"), 
+            #     nn.ELU()
+            # )
             self.res_f = nn.Sequential(
-                nn.Conv3d(in_channels=96, out_channels=128, kernel_size=(self.num_waypoints,1,1), padding="same"), 
+                nn.Conv3d(in_channels=192, out_channels=192, kernel_size=(self.num_waypoints,1,1), padding="same"), 
                 nn.ELU()
             )
+            # self.output_layer_f = nn.Conv2d(
+            #     in_channels=48,
+            #     out_channels=2,
+            #     **conv2d_kwargs)
             
             self.output_layer_f = nn.Conv2d(
-                in_channels=48,
+                in_channels=96,
                 out_channels=2,
                 **conv2d_kwargs)
-            
+        
         self.use_pyramid = self.use_pyramid
+        # if self.use_pyramid:
+        #     self.res_layer = nn.ModuleList([
+        #             nn.Sequential(
+        #                 nn.Conv3d(
+        #                     in_channels=[96,192][i-2],
+        #                     out_channels=decoder_channels[i],
+        #                     kernel_size=(self.num_waypoints,1,1),
+        #                     stride=1,
+        #                     padding="same"
+        #                 ), nn.ELU()
+        #             ) for i in decode_inds[:3-self.shallow_decode]
+        #         ])
+        #     self.ind_list=[2,1,0][self.shallow_decode:]
+        #     self.reshape_dim = [16,32,64][self.shallow_decode:]
+
         if self.use_pyramid:
             self.res_layer = nn.ModuleList([
                     nn.Sequential(
                         nn.Conv3d(
-                            in_channels=[96,192][i-2],
+                            in_channels=[192,384][i-2],
                             out_channels=decoder_channels[i],
                             kernel_size=(self.num_waypoints,1,1),
                             stride=1,
@@ -112,16 +136,18 @@ class Pyramid3DDecoder(nn.Module):
                 ])
             self.ind_list=[2,1,0][self.shallow_decode:]
             self.reshape_dim = [16,32,64][self.shallow_decode:]
-
-        
         
         if self.flow_sep_decode:
             out_dim=2
         else:
             out_dim=4
 
+        # self.output_layer = nn.Conv2d(
+        #     in_channels=48,
+        #     out_channels=out_dim,
+        #     **conv2d_kwargs)
         self.output_layer = nn.Conv2d(
-            in_channels=48,
+            in_channels=96,
             out_channels=out_dim,
             **conv2d_kwargs)
         
@@ -177,7 +203,7 @@ class Pyramid3DDecoder(nn.Module):
                 x = x + self.res_layer[i](res_flat).permute(0,2,3,4,1)
 
             if i==len(self.ind_list)-1 and self.flow_sep_decode:
-                flow_res = torch.reshape(flow_res,[-1,64,64,96])
+                flow_res = torch.reshape(flow_res,[-1,64,64,192])
                 flow_res = torch.repeat_interleave(flow_res[:,np.newaxis],repeats=self.num_waypoints,dim=1)
                 flow_res = flow_res.permute(0,4,1,2,3) # B, C, D, H, W
                 flow_x = x + self.res_f(flow_res).permute(0,2,3,4,1)

@@ -31,9 +31,10 @@ dataset_splits:
 
 dataloader_config:
   num_workers: 1
-  batch_size: 1
+  batch_size: 2
   shuffle: true
   total_samples: 100000
+  
 task_config:
   history_length: 20
   num_his_points: 10
@@ -93,7 +94,7 @@ model:
     query_size: [16,16]
     key_value_size: [16,16]
     num_attention_heads: 24
-    num_attention_head_channels: 32
+    num_attention_head_channels: 32 # attention head channels * num heads should be the same as the input dimension
     num_groups: 24
     input_dimension: 768 # 4 * swin_transformer.embed_dim
     output_dimension: 768

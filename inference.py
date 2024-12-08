@@ -111,9 +111,12 @@ def model_inference(gpu_id, world_size, config):
             pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs(outputs, config.task_config.num_waypoints)
             
             input_dict_np = {key: val.cpu().numpy().squeeze() for key, val in input_dict.items()}
+            # add ground truth to the input_dict_np
+            ground_truth_dict_np = {key: val.cpu().numpy().squeeze() for key, val in ground_truth_dict.items()}
+            input_dict_np.update(ground_truth_dict_np)
             pred_dict = {'observed_occupancy_map': pred_observed_occupancy_logits, 'flow_map': pred_flow_logits, 'occluded_occupancy_map': pred_occluded_occupancy_logits}
             pred_dict_np = {key: val.cpu().numpy().squeeze() for key, val in pred_dict.items()}
-            visualize(config, input_dict_np, str(batch), vis_occ=True, vis_flow=True,vis_optical_flow=False, pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
+            # visualize(config, input_dict_np, str(batch), vis_occ=True, vis_flow=True,vis_optical_flow=False, pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
             visualize(config, input_dict_np, str(batch), vis_occ=False, vis_flow=True, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
             visualize(config, input_dict_np, str(batch), vis_occ=True, vis_flow=False, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
             gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
@@ -153,7 +156,7 @@ def model_inference(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('./config.yaml')
+    config = get_config('./config_12_inference.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"

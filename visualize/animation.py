@@ -110,8 +110,7 @@ def get_cmap(colors):
 
 def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict=None, pred_dict=None, ground_truth=True):
     X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict, pred_dict=pred_dict, ground_truth=ground_truth)
-    grid_size_x = config.occupancy_flow_map.grid_size.x
-    grid_size_y = config.occupancy_flow_map.grid_size.y
+
     road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
     num_history_time_steps = history_data_dic['cur']['occupancy_map'].shape[0]
     num_future_time_steps = future_data_dic['cur']['occupancy_map'].shape[0]
@@ -141,7 +140,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
     for ax in axes:
         ax.axis('off')
 
-    axes[0].set_title('Previous Scene')
+    # axes[0].set_title('Previous Scene')
     axes[1].set_title('Current Scene')
     # axes[2].set_title('Next Scene')
     if vis_optical_flow:
@@ -180,9 +179,9 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         for ax in axes:
             ax.clear()
             ax.axis('off')
-        axes[0].set_title('Previous Scene')
+        # axes[0].set_title('Previous Scene')
         axes[1].set_title('Current Scene')
-        axes[2].set_title('Next Scene')
+        # axes[2].set_title('Next Scene')
         axes[0].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)
         axes[1].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)
         axes[2].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)   
@@ -207,7 +206,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
             if 'cur' in valid_dict: 
                 flow_rendered_cur = axes[1].imshow(flow_vis.flow_to_color(data_dic['cur']['flow_map_rendered']),interpolation='nearest', alpha=1)
             if 'nxt' in valid_dict: 
-                flow_rendered_nex = axes[2].imshow(flow_vis.flow_to_color(data_dic['nxt']['flow_map_rendered']),interpolation='nearest', alpha=1)
+                flow_rendered_nxt = axes[2].imshow(flow_vis.flow_to_color(data_dic['nxt']['flow_map_rendered']),interpolation='nearest', alpha=1)
             
         # Initialize the occupancy map with the first frame's data
         if vis_occ:
@@ -235,10 +234,10 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         if vis_flow:
             if 'prv' in valid_dict: 
                 return_list.extend([quiver_prv])
+            if 'cur' in valid_dict: 
+                return_list.extend([quiver_cur])
             if 'nxt' in valid_dict: 
                 return_list.extend([quiver_nxt])
-            if 'prv' in valid_dict: 
-                return_list.extend([quiver_cur])
         if vis_optical_flow:
             # return_list.extend([flow_rendered_prv, flow_rendered_cur, flow_rendered_nex])
             if 'prv' in valid_dict: 
@@ -246,7 +245,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
             if 'cur' in valid_dict:
                 return_list.extend([flow_rendered_cur])
             if 'nxt' in valid_dict:
-                return_list.extend([flow_rendered_nex])
+                return_list.extend([flow_rendered_nxt])
         if vis_occ:
             # return_list.extend([img_prv_obs_ogm, img_cur_obs_ogm, img_nxt_obs_ogm])
             if 'prv' in valid_dict: 
@@ -273,20 +272,20 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
 from utils.metrics_utils import sample
 import torch
 if __name__ == '__main__':
-    config = get_config()
+    config = get_config('config_12.yaml')
     gridmap = GridMap(config)
     dataset = I24Dataset(config)
-    k = 0
-    name = "scene_641760"
+    k = 6
+    name = "scene_1014"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-    # visualize(config, test_data, name, vis_occ=False, vis_flow=True, vis_optical_flow=False, valid_dict={'cur': 1})
+    # visualize(config, test_data, name, vis_occ=True, vis_flow=False, vis_optical_flow=False, valid_dict={'cur': 1})
     h = torch.arange(0, config.occupancy_flow_map.grid_size.y, dtype=torch.float32)
     w = torch.arange(0, config.occupancy_flow_map.grid_size.x, dtype=torch.float32)
     h_idx, w_idx = torch.meshgrid(h, w, 
         indexing="xy")
     # These indices map each (x, y) location to (x, y).
     # [height, width, 2] but storing x, y coordinates.
-    flow_origin_occupancy = torch.from_numpy(test_data['cur/state/his/observed_occupancy_map'][-1][None, :, :, None])
+    flow_origin_occupancy = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[k-1][None, ..., None] + torch.from_numpy(test_data['cur/state/pred/occluded_occupancy_map'])[k-1][None, ..., None]
     pred_occupancy_map = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[k][None, ..., None]
     print(pred_occupancy_map.shape)
     fig, axes = plt.subplots(1, 3, figsize=(10, 10))
@@ -298,7 +297,7 @@ if __name__ == '__main__':
     cmap_obs = get_cmap(colors_obs)
     axes[0].imshow(np.array(flow_origin_occupancy[0, ..., 0]).astype(np.float32) , cmap=cmap_obs, interpolation='nearest')
     print(flow_origin_occupancy.shape)
-    pred_flow = torch.from_numpy(test_data['cur/state/his/flow_map'])
+    pred_flow = torch.from_numpy(test_data['cur/state/pred/flow_map'])
     print(pred_flow.shape)
     identity_indices = torch.stack(
         (
@@ -312,5 +311,7 @@ if __name__ == '__main__':
         pixel_type=0,
     )
     axes[1].imshow(np.array(pred_occupancy_map[0, ..., 0]).astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
+    
+    # axes[2].quiver(pred_flow[k][..., 1], pred_flow[k][..., 0], color='black', alpha=0.5)
     axes[2].imshow(np.array(wp_origin[0, ..., 0]).astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
     plt.show()

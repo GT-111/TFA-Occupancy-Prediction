@@ -14,6 +14,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
+import warnings
+warnings.filterwarnings("ignore")
 ogm_weight  = 500
 occ_weight  = 500
 flow_weight = 1.0
@@ -48,7 +50,7 @@ def setup(config, gpu_id):
                            no_use_warp=False,
                            use_pred=False,
                            use_focal_loss=True,
-                           use_gt=False)
+                           use_gt=True)
     
     optimizer = torch.optim.NAdam(params=model.parameters(), 
                                   lr=config.training_settings.optimizer.learning_rate,
@@ -103,13 +105,8 @@ def model_training(gpu_id, world_size, config):
         for batch, data in loop:
             
             input_dict, ground_truth_dict = training_utils.parse_data(data, gpu_id, config)
-            for key, val in input_dict.items():
-                # print if value has nan
-                if torch.isnan(val).any():
-                    input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
             his_occupancy_map = input_dict['cur/state/his/observed_occupancy_map']
             his_flow_map = input_dict['cur/state/his/flow_map']
-            flow_origin_occupancy = his_occupancy_map[:, -1, :, :, torch.newaxis]
             
             
             obs_traj, occ_traj= get_trajs(input_dict, config)
@@ -120,6 +117,13 @@ def model_training(gpu_id, world_size, config):
             pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task_config.num_waypoints)
             gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
             gt_observed_occupancy_logits = ground_truth_dict['cur/state/pred/observed_occupancy_map']
+            B, T, H, W = gt_observed_occupancy_logits.shape
+            gt_occluded_occupancy_logits = gt_occluded_occupancy_logits.reshape(B, T, H, W, 1)
+            gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
+            
+            gt_all_occupancy_logits = torch.clamp(gt_observed_occupancy_logits + gt_occluded_occupancy_logits, 0, 1)[:,:-1,...]
+            his_occupancy_map = his_occupancy_map.permute([0, 3, 1, 2]) # B H W T - > B T H W
+            flow_origin_occupancy = torch.cat([his_occupancy_map[:, -1, :, :, torch.newaxis][:,None,...], gt_all_occupancy_logits], dim=1)
             gt_flow = ground_truth_dict['cur/state/pred/flow_map']
             
             loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
@@ -170,13 +174,9 @@ def model_training(gpu_id, world_size, config):
             loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
             for batch, data in loop:
                 input_dict, ground_truth_dict = training_utils.parse_data(data, gpu_id, config)
-                for key, val in input_dict.items():
-                    # print if value has nan
-                    if torch.isnan(val).any():
-                        input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
+                
                 his_occupancy_map = input_dict['cur/state/his/observed_occupancy_map']
                 his_flow_map = input_dict['cur/state/his/flow_map']
-                flow_origin_occupancy = his_occupancy_map[:, -1, :, :, torch.newaxis]
 
 
                 obs_traj, occ_traj= get_trajs(input_dict, config)
@@ -192,6 +192,11 @@ def model_training(gpu_id, world_size, config):
                 B, T, H, W = gt_observed_occupancy_logits.shape
                 gt_occluded_occupancy_logits = gt_occluded_occupancy_logits.reshape(B, T, H, W, 1)
                 gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
+                gt_all_occupancy_logits = torch.clamp(gt_observed_occupancy_logits + gt_occluded_occupancy_logits, 0, 1)[:,:-1,...]
+                his_occupancy_map = his_occupancy_map.permute([0, 3, 1, 2]) # B H W T - > B T H W
+                flow_origin_occupancy = torch.cat([his_occupancy_map[:, -1, :, :, torch.newaxis], gt_all_occupancy_logits], dim=1)
+                
+                
                 
                 gt_flow = ground_truth_dict['cur/state/pred/flow_map']
                 loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
@@ -254,7 +259,7 @@ def model_training(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('./config.yaml')
+    config = get_config('./config_12.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"

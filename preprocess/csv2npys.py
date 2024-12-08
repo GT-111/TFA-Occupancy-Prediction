@@ -4,7 +4,8 @@ from utils.file_utils import get_config
 from utils.occ_flow_utils import GridMap
 from tqdm import tqdm
 import time
-config = get_config()
+import matplotlib.pyplot as plt
+config = get_config('config_12.yaml')
 
 grid_map = GridMap(config)
 start_pos = config.data_attributes.start_position * 5280
@@ -67,8 +68,8 @@ def add_occ_flow(feature_dic):
     feature_dic['flow_map'] = flow_map.astype(np.float16)
     return feature_dic 
 
-def get_feature_dic(scene_data, idx):
-    spatial_start, spatial_end, temporal_start, temporal_end = idx2range(idx)
+def get_feature_dic(scene_data, scene_idx):
+    spatial_start, spatial_end, temporal_start, temporal_end = idx2range(scene_idx)
     scene_data = scene_data[(scene_data['x_position'].between(spatial_start, spatial_end))]
     vehicles_num = scene_data['_id'].nunique()
     vehicles_id = scene_data['_id'].unique()
@@ -87,24 +88,59 @@ def get_feature_dic(scene_data, idx):
     vehicles_yaw_angle = np.zeros(shape, dtype=np.float16)
     for _id, group in scene_data.groupby('_id'):
         idx = vehicles_id_dic[_id]
-        vehicles_length[idx] = group['length'].iloc[0]
-        vehicles_width[idx] = group['width'].iloc[0]
-        vehicles_height[idx] = group['height'].iloc[0]
-        vehicles_direction[idx] = group['direction'].iloc[0]
+        vehicle_length_cur = group['length'].iloc[0]
+        vehicle_width_cur = group['width'].iloc[0]
+        vehicle_height_cur = group['height'].iloc[0]
+        vehicle_direction_cur = group['direction'].iloc[0]
+        # skip the vehicle if the length or width is missing
+        if np.isnan(vehicle_length_cur) or np.isnan(vehicle_width_cur):
+            continue
         timestamp = group['timestamp'].values
         timestamp_idx = (timestamp - temporal_start).astype(np.int16)
+        vehicle_x_cur = group['x_position'].values - spatial_start
+        vehicle_y_cur = group['y_position'].values
+        vehicle_x_velocity_cur = (group['x_position'].values - group['x_position'].shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
+        vehicle_y_velocity_cur = (group['y_position'].values - group['y_position'].shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
+        # fill in the values if its null
+        vehicle_x_cur = np.nan_to_num(vehicle_x_cur)
+        vehicle_y_cur = np.nan_to_num(vehicle_y_cur)
+        vehicle_x_velocity_cur = np.nan_to_num(vehicle_x_velocity_cur)
+        vehicle_y_velocity_cur = np.nan_to_num(vehicle_y_velocity_cur)
+        # calculate yaw angle from x_velocity and y_velocity
+        vehicle_yaw_angle_cur = np.arctan2(vehicle_y_velocity_cur, vehicle_x_velocity_cur)       
+        vehicle_yaw_angle_cur = np.nan_to_num(vehicle_yaw_angle_cur)
+        # skip the vehicle if the yaw angle is abnormal (yaw angle should be with in +- 30 degree)
+        if np.abs(np.arctan(vehicle_y_velocity_cur, vehicle_x_velocity_cur)).max() > np.pi / 4:
+            continue
+        
+        vehicles_length[idx] = vehicle_length_cur
+        vehicles_width[idx] = vehicle_width_cur
+        vehicles_height[idx] = vehicle_height_cur
+        vehicles_direction[idx] = vehicle_direction_cur
         vehicles_timestamp[idx, timestamp_idx] = timestamp
-        vehicles_x[idx, timestamp_idx] = group['x_position'].values - spatial_start
-        vehicles_y[idx, timestamp_idx] = group['y_position'].values
+        vehicles_x[idx, timestamp_idx] = vehicle_x_cur
+        vehicles_y[idx, timestamp_idx] = vehicle_y_cur
         timestamp_shifted = np.roll(vehicles_timestamp[idx], shift=1, axis=0)
         valid_mask = (vehicles_timestamp[idx] > 0) & (timestamp_shifted > 0)
-        vehicles_x_velocity[idx, timestamp_idx] = (group['x_position'].values - group['x_position'].shift(1).values) / (timestamp - timestamp_shifted[timestamp_idx])
-        vehicles_y_velocity[idx, timestamp_idx] = (group['y_position'].values - group['y_position'].shift(1).values) / (timestamp - timestamp_shifted[timestamp_idx])
+        vehicles_x_velocity[idx, timestamp_idx] = vehicle_x_velocity_cur
+        vehicles_y_velocity[idx, timestamp_idx] = vehicle_y_velocity_cur
         vehicles_x_velocity[idx, ~valid_mask] = 0
         vehicles_y_velocity[idx, ~valid_mask] = 0
         # calculate yaw angle from x_velocity and y_velocity
-        vehicles_yaw_angle[idx, timestamp_idx] = np.arctan2(vehicles_y_velocity[idx, timestamp_idx], vehicles_x_velocity[idx, timestamp_idx])
-        
+        vehicles_yaw_angle[idx, timestamp_idx] = vehicle_yaw_angle_cur
+    
+    # fill the values if its null
+    vehicles_length = np.nan_to_num(vehicles_length)
+    vehicles_width = np.nan_to_num(vehicles_width)
+    vehicles_direction = np.nan_to_num(vehicles_direction)
+    vehicles_x = np.nan_to_num(vehicles_x)
+    vehicles_y = np.nan_to_num(vehicles_y)
+    vehicles_timestamp = np.nan_to_num(vehicles_timestamp)
+    vehicles_x_velocity = np.nan_to_num(vehicles_x_velocity)
+    vehicles_y_velocity = np.nan_to_num(vehicles_y_velocity)
+    vehicles_yaw_angle = np.nan_to_num(vehicles_yaw_angle)
+    
+    
     # Step 4: Prepare the result dictionary
     result_dict = {
         # 'scene_id': idx,
@@ -154,6 +190,7 @@ def process_idx(idx):
         'cur': add_occ_flow(cur_feature_dic),
         # 'nxt': add_occ_flow(nxt_feature_dic)
     }
+    
     num_waypoints = config.task_config.num_waypoints
     num_his_points = config.task_config.num_his_points
     feature_dic = typing.DefaultDict(dict)
@@ -165,16 +202,14 @@ def process_idx(idx):
                 feature_dic[dic_k + '/state/pred/' + k] = v[:, config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length]
             elif k in ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']:
                 # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
-                feature_his =  v[:config.task_config.history_length,...]
-                history_timestamps= feature_his.shape[0]
-                feature_dic[dic_k + '/state/his/' + k] = feature_his[::(history_timestamps//num_his_points), ...]
-                feature_pred = v[config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length,...]
-                future_timestamps= feature_pred.shape[0]
-                feature_dic[dic_k + '/state/pred/' + k] = feature_pred[::(future_timestamps // num_waypoints),...]
+                feature_his =  v[:num_his_points,...]
+                feature_dic[dic_k + '/state/his/' + k] = feature_his
+                feature_pred = v[num_his_points: num_his_points + num_waypoints,...]
+                feature_dic[dic_k + '/state/pred/' + k] = feature_pred
                 
             else:
                 feature_dic[dic_k + '/meta/' + k] = v
-
+                
     np.save(f'{config.paths.processed_data}/scene_{idx}', feature_dic)
 
 # # # Number of threads to use
@@ -186,5 +221,3 @@ total_len = 1500000
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress
     list(tqdm(executor.map(process_idx, range(total_len)), total=total_len))
-
-    

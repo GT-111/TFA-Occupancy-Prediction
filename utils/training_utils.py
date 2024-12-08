@@ -28,12 +28,18 @@ def parse_data(data, gpu_id, config):
         if data[key].dim() == 4:
             # OCC
             batch_size, timestamps, height, width = data[key].shape
-            ground_truth_dict[key] = data[key][:, ::(timestamps // num_waypoints),...].to(gpu_id, dtype=torch.float32)
+            ground_truth_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
         elif data[key].dim() == 5:
             # FLOW
             batch_size, timestamps, height, width, num_channels= data[key].shape
-            ground_truth_dict[key] = data[key][:, ::(timestamps // num_waypoints),...].to(gpu_id, dtype=torch.float32)
-        
+            ground_truth_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
+            
+    for key, val in input_dict.items():
+        if torch.isnan(val).any():
+            input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
+    for key, val in ground_truth_dict.items():
+        if torch.isnan(val).any():
+            ground_truth_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
     return input_dict, ground_truth_dict
 
 def save_checkpoint(model, optimizer, scheduler, epoch, path, global_step):
