@@ -58,14 +58,16 @@ def get_feature_dics(idx_list):
     # prv_time = time.time()
     scene_data = get_scene_data(idx_list)
     # print(f'get_scene_data time: {time.time() - prv_time}')
-    prv_feature_dic, cur_feature_dic, nxt_feature_dic = get_feature_dic(scene_data, prv_idx), get_feature_dic(scene_data, cur_idx), get_feature_dic(scene_data, nxt_idx)
+    prv_feature_dic = get_feature_dic(scene_data, prv_idx)
+    cur_feature_dic = get_feature_dic(scene_data, cur_idx)
+    nxt_feature_dic = get_feature_dic(scene_data, nxt_idx)
     return prv_feature_dic, cur_feature_dic, nxt_feature_dic
 
 def add_occ_flow(feature_dic):
     occluded_occupancy_map, observed_occupancy_map, flow_map = grid_map.get_map_flow(feature_dic)
-    feature_dic['occluded_occupancy_map'] = occluded_occupancy_map.astype(np.float16)
-    feature_dic['observed_occupancy_map'] = observed_occupancy_map.astype(np.float16)
-    feature_dic['flow_map'] = flow_map.astype(np.float16)
+    feature_dic['occluded_occupancy_map'] = occluded_occupancy_map.astype(np.float32)
+    feature_dic['observed_occupancy_map'] = observed_occupancy_map.astype(np.float32)
+    feature_dic['flow_map'] = flow_map.astype(np.float32)
     return feature_dic 
 
 def get_feature_dic(scene_data, scene_idx):
@@ -74,18 +76,18 @@ def get_feature_dic(scene_data, scene_idx):
     vehicles_num = scene_data['_id'].nunique()
     vehicles_id = scene_data['_id'].unique()
     vehicles_id_dic = {_id: i - 1 for i, _id in enumerate(vehicles_id)}
-    vehicles_length = np.zeros(vehicles_num, dtype=np.float16)
-    vehicles_width = np.zeros(vehicles_num, dtype=np.float16)
+    vehicles_length = np.zeros(vehicles_num, dtype=np.float32)
+    vehicles_width = np.zeros(vehicles_num, dtype=np.float32)
     vehicles_height = np.zeros(vehicles_num)
-    vehicles_direction = np.zeros(vehicles_num, dtype=np.float16)
+    vehicles_direction = np.zeros(vehicles_num, dtype=np.float32)
     vehicles_class = np.zeros(vehicles_num)
     shape = (vehicles_num, temporal_window)
-    vehicles_x = np.zeros(shape, dtype=np.float16)
-    vehicles_y = np.zeros(shape, dtype=np.float16)
-    vehicles_timestamp = np.zeros(shape, dtype=np.int16)
-    vehicles_x_velocity = np.zeros(shape, dtype=np.float16)
-    vehicles_y_velocity = np.zeros(shape, dtype=np.float16)
-    vehicles_yaw_angle = np.zeros(shape, dtype=np.float16)
+    vehicles_x = np.zeros(shape, dtype=np.float32)
+    vehicles_y = np.zeros(shape, dtype=np.float32)
+    vehicles_timestamp = np.zeros(shape, dtype=np.int32)
+    vehicles_x_velocity = np.zeros(shape, dtype=np.float32)
+    vehicles_y_velocity = np.zeros(shape, dtype=np.float32)
+    vehicles_yaw_angle = np.zeros(shape, dtype=np.float32)
     for _id, group in scene_data.groupby('_id'):
         idx = vehicles_id_dic[_id]
         vehicle_length_cur = group['length'].iloc[0]
@@ -96,7 +98,7 @@ def get_feature_dic(scene_data, scene_idx):
         if np.isnan(vehicle_length_cur) or np.isnan(vehicle_width_cur):
             continue
         timestamp = group['timestamp'].values
-        timestamp_idx = (timestamp - temporal_start).astype(np.int16)
+        timestamp_idx = (timestamp - temporal_start).astype(np.int32)
         vehicle_x_cur = group['x_position'].values - spatial_start
         vehicle_y_cur = group['y_position'].values
         vehicle_x_velocity_cur = (group['x_position'].values - group['x_position'].shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
@@ -221,3 +223,4 @@ total_len = 1500000
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress
     list(tqdm(executor.map(process_idx, range(total_len)), total=total_len))
+# process_idx(1014)

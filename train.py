@@ -47,7 +47,7 @@ def setup(config, gpu_id):
                            flow_weight=flow_weight,
                            flow_origin_weight=flow_origin_weight,
                            replica=1.0,
-                           no_use_warp=False,
+                           no_use_warp=True,
                            use_pred=False,
                            use_focal_loss=True,
                            use_gt=True)
@@ -60,7 +60,6 @@ def setup(config, gpu_id):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optimizer, 
                                                 step_size=config.training_settings.scheduler.step_size,
                                                 gamma=config.training_settings.scheduler.gamma) 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 3, 0.5) 
     return model, loss_fn, optimizer, scheduler
 
 

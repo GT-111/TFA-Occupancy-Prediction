@@ -316,6 +316,7 @@ class OGMFlow_loss():
         image_shape = input_tensor.size()
         return torch.reshape(input_tensor, [*image_shape[0:1], -1])
 
+import numpy as np
 
 def test_loss(config):
     his_len = config.task_config.history_length
@@ -325,6 +326,20 @@ def test_loss(config):
     grid_size_y = config.occupancy_flow_map.grid_size.y
     num_waypoints = config.task_config.num_waypoints
     
+    name = "scene_1014"
+    test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
+    flow_origin_occupancy = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[None, :-1, ..., None] + torch.from_numpy(test_data['cur/state/pred/occluded_occupancy_map'])[None, :-1, ..., None]
+    pred_flow_map = torch.from_numpy(test_data['cur/state/pred/flow_map'])[None, ...]
+    gt_observed_occupancy = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[None, ..., None]
+    gt_occluded_occupancy = torch.from_numpy(test_data['cur/state/pred/occluded_occupancy_map'])[None, ..., None]
+    flow_origin_occupancy = torch.concat([torch.from_numpy(test_data['cur/state/his/observed_occupancy_map'])[-1][None, None,...,None], flow_origin_occupancy], dim=1)
+    flow_origin_occupancy = torch.clamp(flow_origin_occupancy, 0, 1)
+    print(flow_origin_occupancy.shape)
+    
+    
+    
+    
+    
     dummy_pred_observed_occupancy = cur_ogm = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 1))
     dummy_pred_occluded_occupancy = torch.rand((batch_size, num_waypoints,  grid_size_x, grid_size_y, 1))
     dummy_pred_flow = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 2))
@@ -332,7 +347,7 @@ def test_loss(config):
     dummy_gt_observed_occupancy = cur_ogm = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 1))
     dummy_gt_occluded_occupancy = torch.rand((batch_size, num_waypoints,  grid_size_x, grid_size_y, 1))
     dummy_gt_flow = torch.rand((batch_size, num_waypoints, grid_size_x, grid_size_y, 2))
-    flow_origin_occupancy = torch.rand((batch_size, grid_size_x, grid_size_y, 1))
+
     # pred_observed_occupancy_logits,
     # pred_occluded_occupancy_logits,
     # pred_flow_logits,
@@ -344,10 +359,12 @@ def test_loss(config):
     loss_fn = OGMFlow_loss(config, replica=1, no_use_warp=False, use_pred=False, use_gt=True, use_focal_loss=True)
 
     # values = loss_fn(dummy_pred_observed_occupancy, dummy_pred_occluded_occupancy, dummy_pred_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
-    values = loss_fn(dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
+    # values = loss_fn(dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, dummy_gt_observed_occupancy, dummy_gt_occluded_occupancy, dummy_gt_flow, flow_origin_occupancy)
+    values = loss_fn(gt_observed_occupancy, gt_occluded_occupancy, pred_flow_map, gt_observed_occupancy, gt_occluded_occupancy, pred_flow_map, flow_origin_occupancy)
+    
     print(values)
 
 
 if __name__ == "__main__":
-    config = get_config("./config.yaml")
+    config = get_config("./config_12.yaml")
     test_loss(config)

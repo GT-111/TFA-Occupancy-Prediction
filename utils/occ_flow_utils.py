@@ -1,5 +1,5 @@
 import numpy as np
-
+import matplotlib.pyplot as plt
 class GridMap():
     def __init__(self, config):
         self.data_sample_frequency = 25
@@ -133,6 +133,7 @@ class GridMap():
         # Get the corresponding vehicle grid points for valid entries
    
         vehicle_grids_masked = vehicle_grids[valid_agent_indices, valid_time_indices]  # Shape: (N_valid, 2560, 2)
+        # vehicle_grids_masked_diff = (np.roll(vehicle_grids, shift=1, axis=1) - vehicle_grids)[valid_agent_indices, valid_time_indices]
         vehicle_points_masked = (np.roll(vehicle_points, shift=1, axis=1) - vehicle_points)[valid_agent_indices, valid_time_indices]  # Shape: (N_valid, 2560, 2)
         # set the first valid time index to 0
         
@@ -146,10 +147,11 @@ class GridMap():
         valid_mask = (grid_x >= 0) & (grid_x < self.map_size[0]) & (grid_y >= 0) & (grid_y < self.map_size[1])
 
         # Apply the mask to keep only valid indices
-      
+        grid_x = grid_x[valid_mask]
+        grid_y = grid_y[valid_mask]
         agent_indices_repeated = agent_indices_repeated[valid_mask]
         time_indices_repeated = time_indices_repeated[valid_mask]
-        flow_map[agent_indices_repeated, time_indices_repeated, grid_x[valid_mask], grid_y[valid_mask]] = vehicle_points_masked.reshape(-1, 2)[valid_mask]
+        flow_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = vehicle_points_masked.reshape(-1, 2)[valid_mask]
  
         return np.sum(flow_map, axis=0)
     
