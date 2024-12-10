@@ -115,11 +115,11 @@ class OGMFlow_loss():
             pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
             pred_flow = pred_flow_logits[:,k]
 
-            true_observed_occupancy = gt_observed_occupancy_logits[:,k]
-            true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
-            true_flow = gt_flow_logits[:,k]
+            true_observed_occupancy = gt_observed_occupancy_logits[...,k]
+            true_occluded_occupancy = gt_occluded_occupancy_logits[...,k]
+            true_flow = gt_flow_logits[...,k,:]
 
-            flow_origin_occupancy = flow_origin_occupancy_logits[:,k]
+            flow_origin_occupancy = flow_origin_occupancy_logits[...,k][...,None]
 
             # Accumulate over waypoints.
             loss_dict['observed_xe'].append(

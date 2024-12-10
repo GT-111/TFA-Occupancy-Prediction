@@ -4,10 +4,14 @@ from dataset.I24Dataset import I24Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-def merge_batch_by_padding_2nd_dim(tensor_list, return_pad_mask=False):
+
+
+import torch
+
+def merge_batch_by_padding_0nd_dim(tensor_list, return_pad_mask=False):
     # Determine the dimensions of the tensors
     tensor_shape_len = len(tensor_list[0].shape)
-    if tensor_shape_len not in [2]:
+    if tensor_shape_len not in [2, 3]:
         return torch.stack(tensor_list, dim=0)
 
     # Flag for determining if we need to adjust the dimensions back
@@ -60,7 +64,7 @@ def merge_batch_by_padding_2nd_dim(tensor_list, return_pad_mask=False):
 def process_batch(batch_list):
     key_to_list = {}
     batch_size = len(batch_list)
-    state_keys = [
+    map_keys = [
             'his/occluded_occupancy_map', 
             'pred/occluded_occupancy_map', 
             'his/observed_occupancy_map', 
@@ -73,8 +77,9 @@ def process_batch(batch_list):
             'pred/occluded_trajectories', 
             'flow_origin_occupancy_map'
             ]
-    state_keys = []
-    meta_scalar_keys = []
+    trajectory_keys = [            
+                    
+                    ]
     meta_array_keys = []
     # for scene_key in ['prv', 'cur', 'nxt']:
     # for scene_key in ['cur']:
@@ -92,24 +97,24 @@ def process_batch(batch_list):
     #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     # for key in meta_array_keys:
     #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    for key in state_keys:
+    for key in map_keys:
         key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    
+    for key in trajectory_keys:
+        key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     
     input_dict = {}
     for key, val_list in key_to_list.items():
-        if key in state_keys:
+        if key in map_keys:
             
             val_list = [torch.from_numpy(x) for x in val_list]
-            input_dict[key] = merge_batch_by_padding_2nd_dim(val_list)
-            
-        elif key in meta_scalar_keys:
-            # chec if value list are zero-dimensional arrays
-            if not isinstance(val_list[0], np.ndarray):
+            input_dict[key] = merge_batch_by_padding_0nd_dim(val_list)
+        # elif key in meta_scalar_keys:
+        #     # chec if value list are zero-dimensional arrays
+        #     if not isinstance(val_list[0], np.ndarray):
                 
-                input_dict[key] = torch.tensor(val_list)
-            else:   
-                input_dict[key] = np.concatenate(val_list, axis=0)
+        #         input_dict[key] = torch.tensor(val_list)
+        #     else:   
+        #         input_dict[key] = np.concatenate(val_list, axis=0)
         else:
             
                 val_list = [torch.from_numpy(x) for x in val_list]
@@ -163,7 +168,8 @@ def get_dataloader(config):
 
 
 
-def get_road_map(config, batch_size, batch_first=True):
+def get_road_map(config, batch_size = None, batch_first=True):
+
     grid_size_x = config.occupancy_flow_map.grid_size.x
     grid_size_y = config.occupancy_flow_map.grid_size.y
     map_size = (grid_size_x, grid_size_y)

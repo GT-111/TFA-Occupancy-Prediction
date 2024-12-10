@@ -56,9 +56,9 @@ def compute_occupancy_flow_metrics(
     pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
     pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
     pred_flow = pred_flow_logits[:,k]
-    true_observed_occupancy = gt_observed_occupancy_logits[:,k]
-    true_occluded_occupancy = gt_occluded_occupancy_logits[:,k]
-    true_flow = gt_flow_logits[:,k]
+    true_observed_occupancy = gt_observed_occupancy_logits[...,k][...,None]
+    true_occluded_occupancy = gt_occluded_occupancy_logits[...,k][...,None]
+    true_flow = gt_flow_logits[...,k,:]
     # adding this CAUSE DISTRIBUTE ERROR!!!!
     # has_true_observed_occupancy[k] = tf.reduce_max(true_observed_occupancy) > 0
     # has_true_occluded_occupancy[k] = tf.reduce_max(true_occluded_occupancy) > 0
@@ -242,8 +242,8 @@ def _flow_warp(
   for k in range(config.task_config.num_waypoints):
     # [batch_size, height, width, 1]
     # [batch_size, height, width, 2]
-    pred_flow = pred_flow_logits[:, k]
-    flow_origin_occupancy = flow_origin_occupancy_logits[:, k]
+    pred_flow = pred_flow_logits[:,k]
+    flow_origin_occupancy = flow_origin_occupancy_logits[...,k][...,None]
     # Shifting the identity grid indices according to predicted flow tells us
     # the source (origin) grid cell for each flow vector.  We simply sample
     # occupancy values from these locations.
@@ -258,7 +258,6 @@ def _flow_warp(
     # warped_indices = warped_indices + 1
     # NOTE: tensorflow graphics expects warp to contain (x, y) as well.
     # [batch_size, height, width, 2]
-    print(flow_origin_occupancy.shape)
     warped_origin = sample(
         image=flow_origin_occupancy,
         warp=warped_indices,

@@ -218,8 +218,8 @@ def process_idx(idx):
     occluded_occupancy_map, observed_occupancy_map, flow_map = grid_map.get_map_flow(cur_feature_dic)
     observed_trajectories, occluded_trajectories = get_trajectories(cur_feature_dic, config)
     result_dic = {
-        'occluded_occupancy_map': occluded_occupancy_map, # H,W,T
-        'observed_occupancy_map': observed_occupancy_map, # H,W,T
+        'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
+        'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
         'flow_map': flow_map, # H,W,(T-1),2
         'observed_trajectories': observed_trajectories, # (Nobs, T, D)
         'occluded_trajectories': occluded_trajectories, # (Nocc, T, D)
@@ -232,10 +232,10 @@ def process_idx(idx):
     feature_dic['pred/observed_occupancy_map'] = result_dic['observed_occupancy_map'][..., num_his_points: num_his_points + num_waypoints]
     feature_dic['his/flow_map'] = result_dic['flow_map'][..., :-num_waypoints, :]
     feature_dic['pred/flow_map'] = result_dic['flow_map'][..., -num_waypoints:, :]
-    feature_dic['his/observed_trajectories'] = result_dic['observed_trajectories'][..., :num_his_points]
-    feature_dic['pred/observed_trajectories'] = result_dic['observed_trajectories'][..., num_his_points: num_his_points + num_waypoints]
-    feature_dic['his/occluded_trajectories'] = result_dic['occluded_trajectories'][..., :num_his_points]
-    feature_dic['pred/occluded_trajectories'] = result_dic['occluded_trajectories'][..., num_his_points: num_his_points + num_waypoints]
+    feature_dic['his/observed_trajectories'] = result_dic['observed_trajectories'][..., :num_his_points, :]
+    feature_dic['pred/observed_trajectories'] = result_dic['observed_trajectories'][..., num_his_points: num_his_points + num_waypoints, :]
+    feature_dic['his/occluded_trajectories'] = result_dic['occluded_trajectories'][..., :num_his_points, :]
+    feature_dic['pred/occluded_trajectories'] = result_dic['occluded_trajectories'][..., num_his_points: num_his_points + num_waypoints, :]
     all_occupancy_map = result_dic['occluded_occupancy_map'] + result_dic['observed_occupancy_map']
     all_occupancy_map = np.clip(all_occupancy_map, 0, 1)
     feature_dic['flow_origin_occupancy_map'] = all_occupancy_map[...,num_his_points - 1: num_his_points -1 + num_waypoints]

@@ -1,5 +1,5 @@
 from utils.file_utils import get_config, get_last_checkpoint
-from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp, get_trajs
+from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
 from tqdm import tqdm
@@ -47,7 +47,7 @@ def setup(config, gpu_id):
                            flow_weight=flow_weight,
                            flow_origin_weight=flow_origin_weight,
                            replica=1.0,
-                           no_use_warp=True,
+                           no_use_warp=False,
                            use_pred=False,
                            use_focal_loss=True,
                            use_gt=False)
@@ -121,7 +121,7 @@ def model_training(gpu_id, world_size, config):
             
             
             his_flow_map = his_flow_map[...,-1,:] # B H W 2
-            outputs = model(his_occupancy_map, his_flow_map, road_map, his_observed_trajectories, his_occluded_trajectories)
+            outputs = model(his_occupancy_map, his_flow_map, road_map, his_observed_trajectories, his_observed_trajectories)
             pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task_config.num_waypoints)
     
             
@@ -252,7 +252,7 @@ def model_training(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('./config_12.yaml')
+    config = get_config('configs/config_12.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"
