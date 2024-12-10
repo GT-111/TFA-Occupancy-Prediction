@@ -275,7 +275,7 @@ if __name__ == '__main__':
     config = get_config('config_12.yaml')
     gridmap = GridMap(config)
     dataset = I24Dataset(config)
-    k = 2
+    k = 3
     name = "scene_1014"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
     # visualize(config, test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=False, valid_dict={'cur': 1})
@@ -285,8 +285,8 @@ if __name__ == '__main__':
     h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
     # These indices map each (x, y) location to (x, y).
     # [height, width, 2] but storing x, y coordinates.
-    flow_origin_occupancy = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[k-1] + torch.from_numpy(test_data['cur/state/pred/occluded_occupancy_map'])[k-1]
-    pred_occupancy_map = torch.from_numpy(test_data['cur/state/pred/observed_occupancy_map'])[k]
+    flow_origin_occupancy = torch.from_numpy(test_data['observed_occupancy_map'])[...,-config.task_config.num_waypoints:][...,k-1] + torch.from_numpy(test_data['occluded_occupancy_map'])[...,-config.task_config.num_waypoints:][...,k-1]
+    pred_occupancy_map = torch.from_numpy(test_data['observed_occupancy_map'])[...,-config.task_config.num_waypoints:][...,k]
     print(pred_occupancy_map.shape)
     fig, axes = plt.subplots(1, 3, figsize=(10, 10))
     colors_obs = [
@@ -295,18 +295,23 @@ if __name__ == '__main__':
         (1, 0, 1)  # Red for 1
     ]
     cmap_obs = get_cmap(colors_obs)
-    axes[0].imshow(flow_origin_occupancy.swapaxes(0,1) , cmap=cmap_obs, interpolation='nearest')
+    axes[0].imshow(flow_origin_occupancy, cmap=cmap_obs, interpolation='nearest')
     print(flow_origin_occupancy.shape)
-    pred_flow = torch.from_numpy(test_data['cur/state/pred/flow_map'])
+    pred_flow = torch.from_numpy(test_data['flow_map'])[...,-config.task_config.num_waypoints:,:]
     print(pred_flow.shape)
-    identity_indices = torch.stack((w_idx.T, h_idx.T), dim=-1) 
-    warped_indices = identity_indices + pred_flow[k-1]
-
-    warped_indices[..., 0] = torch.clamp(warped_indices[..., 0], 0, config.occupancy_flow_map.grid_size.x - 1)
-    warped_indices[..., 1] = torch.clamp(warped_indices[..., 1], 0, config.occupancy_flow_map.grid_size.y - 1)
-    w_indices = warped_indices[..., 0].long()
-    h_indices = warped_indices[..., 1].long()
-    flow_wrap_occupancy = flow_origin_occupancy[w_indices, h_indices] 
-    axes[1].imshow(flow_wrap_occupancy.squeeze(), cmap=cmap_obs, interpolation='nearest', )
-
+    identity_indices = torch.stack(
+        (
+            w_idx.T,
+            h_idx.T,
+        ),dim=-1)
+    warped_indices = identity_indices + pred_flow[...,k,:][None, ...]
+    wp_origin = sample(
+        image=flow_origin_occupancy[None, ..., None],
+        warp=warped_indices,
+        pixel_type=0,
+    )
+    axes[1].imshow(np.array(pred_occupancy_map).astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
+    
+    # axes[2].quiver(pred_flow[k][..., 1], pred_flow[k][..., 0], color='black', alpha=0.5)
+    axes[2].imshow(np.array(wp_origin)[0,...,0].astype(np.float32), cmap=cmap_obs, interpolation='nearest', )
     plt.show()

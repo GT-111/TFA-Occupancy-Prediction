@@ -25,17 +25,16 @@ temporal_window = config.preprocessing.temporal_window
 spatial_length = int(np.floor((x_max - x_min - spatial_window) / spatial_stride))
 temporal_length = int(np.floor((time_max - time_min - temporal_window) / temporal_stride))
 
-his_len = config.task_config.history_length
-pred_len = config.task_config.prediction_length
+history_length = config.task_config.history_length
+prediction_length = config.task_config.prediction_length
+num_waypoints = config.task_config.num_waypoints
+num_his_points = config.task_config.num_his_points
+
 def get_scene_data(idx_list):
     prv_idx, cur_idx, nxt_idx = idx_list
-    
-    
     prv_spatial_start, _, prv_temporal_start, prv_temporal_end = idx2range(prv_idx)
     _, nxt_spatial_end, _, _ = idx2range(nxt_idx)
     
-    # scene_data = data_df[(data_df['timestamp'].between(prv_temporal_start, prv_temporal_end))]
-    # scene_data = scene_data[(scene_data['x_position'].between(prv_spatial_start, nxt_spatial_end))]
     # time stamp is the index, use the index to slice the data
     scene_data = data_df.loc[prv_temporal_start:prv_temporal_end].copy()
     scene_data.loc[:, 'timestamp']= scene_data.index
@@ -63,12 +62,22 @@ def get_feature_dics(idx_list):
     nxt_feature_dic = get_feature_dic(scene_data, nxt_idx)
     return prv_feature_dic, cur_feature_dic, nxt_feature_dic
 
+@DeprecationWarning
 def add_occ_flow(feature_dic):
     occluded_occupancy_map, observed_occupancy_map, flow_map = grid_map.get_map_flow(feature_dic)
     feature_dic['occluded_occupancy_map'] = occluded_occupancy_map.astype(np.float32)
     feature_dic['observed_occupancy_map'] = observed_occupancy_map.astype(np.float32)
     feature_dic['flow_map'] = flow_map.astype(np.float32)
     return feature_dic 
+
+def convert(coordinates):
+    # coordinates (Na, timestamps)
+    coordinates = np.concatenate([coordinates[:,:history_length][:, ::(history_length//num_his_points)], 
+              coordinates[:,history_length: history_length + prediction_length][:,::(prediction_length // num_waypoints)]]
+             ,axis=1
+             )
+    
+    return coordinates
 
 def get_feature_dic(scene_data, scene_idx):
     spatial_start, spatial_end, temporal_start, temporal_end = idx2range(scene_idx)
@@ -148,21 +157,40 @@ def get_feature_dic(scene_data, scene_idx):
         # 'scene_id': idx,
         # '_id': vehicles_id,
         'num_vehicles': vehicles_num,
-        'timestamp': vehicles_timestamp,
+        'timestamp': convert(vehicles_timestamp),
         'length': vehicles_length,
         'width': vehicles_width,
         # 'height': vehicles_height,
         'direction': vehicles_direction,
         'class':vehicles_class,
-        'x_position': vehicles_x,
-        'y_position': vehicles_y,
-        'x_velocity': vehicles_x_velocity,
-        'y_velocity': vehicles_y_velocity,
-        'yaw_angle': vehicles_yaw_angle,
-        'start_pos': spatial_start,
-        'start_time': temporal_start,
+        'x_position': convert(vehicles_x),
+        'y_position': convert(vehicles_y),
+        'x_velocity': convert(vehicles_x_velocity),
+        'y_velocity': convert(vehicles_y_velocity),
+        'yaw_angle': convert(vehicles_yaw_angle),
+        # 'start_pos': spatial_start,
+        # 'start_time': temporal_start,
     }
+    
     return result_dict
+
+def get_trajectories(data, config):
+    
+    num_time_steps = config.task_config.num_his_points + config.task_config.num_waypoints
+    observed_idx = (data['timestamp'][...,config.task_config.num_his_points - 1] > 0)
+    
+    # 'cur/meta/length', 'cur/meta/width', 'cur/meta/class', 'cur/meta/direction'
+    vector_features_list = ['length', 'width', 'class', 'direction']
+    node_features_list = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']
+
+    vector_features_observed = np.stack([data[feature][observed_idx][:, None].repeat(num_time_steps, axis = 1) for feature in vector_features_list], axis = -1)
+    vector_features_occluded = np.stack([data[feature][~observed_idx][:, None].repeat(num_time_steps, axis = 1) for feature in vector_features_list], axis = -1)
+    node_features_observed = np.stack([data[feature][observed_idx] for feature in node_features_list], axis = -1)
+    node_features_occluded = np.stack([data[feature][~observed_idx] for feature in node_features_list], axis = -1)
+    observed_trajectories = np.concatenate([node_features_observed, vector_features_observed], axis = -1)
+    occluded_trajectories = np.concatenate([node_features_occluded, vector_features_occluded], axis = -1)
+    return observed_trajectories, occluded_trajectories
+
 import typing
 import concurrent.futures
 def process_idx(idx):
@@ -181,37 +209,36 @@ def process_idx(idx):
     prv_feature_dic, cur_feature_dic, nxt_feature_dic = get_feature_dics(idx_list)
     if cur_feature_dic['num_vehicles'] <= 2:
         return
-    points_per_vehicle_history = (np.sum(cur_feature_dic['timestamp'][:, :config.task_config.history_length]!=0) / cur_feature_dic['num_vehicles'])/config.task_config.history_length
-    points_per_vehicle_future = (np.sum(cur_feature_dic['timestamp'][:, config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length]!=0) / cur_feature_dic['num_vehicles'])/config.task_config.prediction_length
-    # print(points_per_vehicle_history, points_per_vehicle_future)
-    if points_per_vehicle_history < 0.4 or points_per_vehicle_future < 0.4: # type: ignore
+    points_per_vehicle_history = (np.sum(cur_feature_dic['timestamp'][:, :num_his_points]!=0) / cur_feature_dic['num_vehicles'])/num_his_points
+    points_per_vehicle_future = (np.sum(cur_feature_dic['timestamp'][:, num_his_points: num_his_points + num_waypoints]!=0) / cur_feature_dic['num_vehicles'])/num_waypoints
+    # if the number of valid points per vehicle is less than 0.4, skip the scene
+    if points_per_vehicle_history < 0.4 or points_per_vehicle_future < 0.4:
         return
-    
+
+    occluded_occupancy_map, observed_occupancy_map, flow_map = grid_map.get_map_flow(cur_feature_dic)
+    observed_trajectories, occluded_trajectories = get_trajectories(cur_feature_dic, config)
     result_dic = {
-        # 'prv': add_occ_flow(prv_feature_dic),
-        'cur': add_occ_flow(cur_feature_dic),
-        # 'nxt': add_occ_flow(nxt_feature_dic)
+        'occluded_occupancy_map': occluded_occupancy_map, # H,W,T
+        'observed_occupancy_map': observed_occupancy_map, # H,W,T
+        'flow_map': flow_map, # H,W,(T-1),2
+        'observed_trajectories': observed_trajectories, # (Nobs, T, D)
+        'occluded_trajectories': occluded_trajectories, # (Nocc, T, D)
     }
     
-    num_waypoints = config.task_config.num_waypoints
-    num_his_points = config.task_config.num_his_points
     feature_dic = typing.DefaultDict(dict)
-    for dic_k, dic in result_dic.items():
-        for k, v in dic.items():
-            if k in ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']:
-                # (Num of Agents, Timestamp
-                feature_dic[dic_k + '/state/his/' + k] = v[:, :config.task_config.history_length]
-                feature_dic[dic_k + '/state/pred/' + k] = v[:, config.task_config.history_length: config.task_config.history_length + config.task_config.prediction_length]
-            elif k in ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']:
-                # (Timestamp, H, W) -> Occ (Timestamp, H, W, 2) -> Flow
-                feature_his =  v[:num_his_points,...]
-                feature_dic[dic_k + '/state/his/' + k] = feature_his
-                feature_pred = v[num_his_points: num_his_points + num_waypoints,...]
-                feature_dic[dic_k + '/state/pred/' + k] = feature_pred
-                
-            else:
-                feature_dic[dic_k + '/meta/' + k] = v
-                
+    feature_dic['his/occluded_occupancy_map'] = result_dic['occluded_occupancy_map'][..., :num_his_points]
+    feature_dic['pred/occluded_occupancy_map'] = result_dic['occluded_occupancy_map'][..., num_his_points: num_his_points + num_waypoints]
+    feature_dic['his/observed_occupancy_map'] = result_dic['observed_occupancy_map'][..., :num_his_points]
+    feature_dic['pred/observed_occupancy_map'] = result_dic['observed_occupancy_map'][..., num_his_points: num_his_points + num_waypoints]
+    feature_dic['his/flow_map'] = result_dic['flow_map'][..., :-num_waypoints, :]
+    feature_dic['pred/flow_map'] = result_dic['flow_map'][..., -num_waypoints:, :]
+    feature_dic['his/observed_trajectories'] = result_dic['observed_trajectories'][..., :num_his_points]
+    feature_dic['pred/observed_trajectories'] = result_dic['observed_trajectories'][..., num_his_points: num_his_points + num_waypoints]
+    feature_dic['his/occluded_trajectories'] = result_dic['occluded_trajectories'][..., :num_his_points]
+    feature_dic['pred/occluded_trajectories'] = result_dic['occluded_trajectories'][..., num_his_points: num_his_points + num_waypoints]
+    all_occupancy_map = result_dic['occluded_occupancy_map'] + result_dic['observed_occupancy_map']
+    all_occupancy_map = np.clip(all_occupancy_map, 0, 1)
+    feature_dic['flow_origin_occupancy_map'] = all_occupancy_map[...,num_his_points - 1: num_his_points -1 + num_waypoints]
     np.save(f'{config.paths.processed_data}/scene_{idx}', feature_dic)
 
 # # # Number of threads to use
@@ -223,4 +250,3 @@ total_len = 1500000
 with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wrap tqdm around the executor to show progress
     list(tqdm(executor.map(process_idx, range(total_len)), total=total_len))
-# process_idx(1014)

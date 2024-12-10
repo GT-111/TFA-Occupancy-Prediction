@@ -60,39 +60,38 @@ def merge_batch_by_padding_2nd_dim(tensor_list, return_pad_mask=False):
 def process_batch(batch_list):
     key_to_list = {}
     batch_size = len(batch_list)
-    meta_scalar = [
-                    'num_vehicles',
-                    # '_id', 
-                #    'scene_id', 
-                   'start_pos', 
-                   'start_time'
-                   ]
-    meta_array = ['length', 
-                  'width', 
-                #   'height', 
-                  'class', 
-                  'direction']
-    state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
+    state_keys = [
+            'his/occluded_occupancy_map', 
+            'pred/occluded_occupancy_map', 
+            'his/observed_occupancy_map', 
+            'pred/observed_occupancy_map', 
+            'his/flow_map', 
+            'pred/flow_map', 
+            'his/observed_trajectories', 
+            'pred/observed_trajectories', 
+            'his/occluded_trajectories', 
+            'pred/occluded_trajectories', 
+            'flow_origin_occupancy_map'
+            ]
     state_keys = []
     meta_scalar_keys = []
     meta_array_keys = []
     # for scene_key in ['prv', 'cur', 'nxt']:
-    for scene_key in ['cur']:
-        for key in meta_scalar:
-            key = f'{scene_key}/meta/{key}'
-            meta_scalar_keys.append(key)
-        for key in meta_array:
-            key = f'{scene_key}/meta/{key}'
-            meta_array_keys.append(key)
-        for key in state:
-            his_key = f'{scene_key}/state/his/{key}'
-            pred_key = f'{scene_key}/state/pred/{key}'
-            state_keys.extend([his_key, pred_key])
-            
-    for key in meta_scalar_keys:
-        key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    for key in meta_array_keys:
-        key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
+    # for scene_key in ['cur']:
+    #     for key in meta_scalar:
+    #         key = f'{scene_key}/meta/{key}'
+    #         meta_scalar_keys.append(key)
+    #     for key in meta_array:
+    #         key = f'{scene_key}/meta/{key}'
+    #         meta_array_keys.append(key)
+    #     for key in state:
+    #         his_key = f'{scene_key}/state/his/{key}'
+    #         pred_key = f'{scene_key}/state/pred/{key}'
+    #         state_keys.extend([his_key, pred_key])
+    # for key in meta_scalar_keys:
+    #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
+    # for key in meta_array_keys:
+    #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     for key in state_keys:
         key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     
@@ -119,7 +118,7 @@ def process_batch(batch_list):
 
 def collate_fn(batch_list):
     
-    return process_batch([_ for _ in batch_list])
+    return process_batch([batch_data for batch_data in batch_list])
 
 
 def get_dataset(config):
@@ -163,29 +162,8 @@ def get_dataloader(config):
     return train_dataloader, val_dataloader, test_dataloader
 
 
-def get_trajs(input_dict, config):
-    num_vehicles = input_dict['cur/meta/num_vehicles']
-    vector_features_list = ['cur/meta/length', 'cur/meta/width', 'cur/meta/class', 'cur/meta/direction']
-    node_features_list = ['cur/state/his/timestamp', 'cur/state/his/x_position', 'cur/state/his/y_position', 'cur/state/his/x_velocity', 'cur/state/his/y_velocity', 'cur/state/his/yaw_angle',]
-    obs_idx = (input_dict['cur/state/his/timestamp'] > 0)[...,-1]
-    vector_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=1) for feature in vector_features_list], dim=1)
-    node_feature = torch.cat([torch.unsqueeze(input_dict[feature], dim=3) for feature in node_features_list], dim=3)
-    B, N, T, _ = node_feature.shape
-    vector_feature_processed = torch.zeros([B, N, T, 4]).to(node_feature.device)
-    prv_vehicle_idx = 0
-    for batch_idx in range(B):
-        vector_feature_processed[batch_idx, :int(num_vehicles[batch_idx]) - 1, :, :] = torch.repeat_interleave(torch.unsqueeze(vector_feature[int(prv_vehicle_idx):int(prv_vehicle_idx + num_vehicles[batch_idx] - 1), :], dim = 1), repeats=T, dim=1)
-        prv_vehicle_idx += num_vehicles[batch_idx]
-    trajs = torch.cat([node_feature, vector_feature_processed], dim=3)
-    obs_trajs = torch.zeros_like(trajs)
-    occ_trajs = torch.zeros_like(trajs)
-    obs_trajs[obs_idx] = trajs[obs_idx]
-    occ_trajs[~obs_idx] = trajs[~obs_idx]
-    return obs_trajs, occ_trajs
 
-
-def get_road_map(config, batch_first=True):
-    batch_size = config.dataloader_config.batch_size
+def get_road_map(config, batch_size, batch_first=True):
     grid_size_x = config.occupancy_flow_map.grid_size.x
     grid_size_y = config.occupancy_flow_map.grid_size.y
     map_size = (grid_size_x, grid_size_y)

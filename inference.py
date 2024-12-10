@@ -43,7 +43,7 @@ def setup(config, gpu_id):
                            flow_weight=flow_weight,
                            flow_origin_weight=flow_origin_weight,
                            replica=1.0,
-                           no_use_warp=False,
+                           no_use_warp=True,
                            use_pred=False,
                            use_focal_loss=True,
                            use_gt=False)

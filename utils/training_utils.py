@@ -1,38 +1,37 @@
 import torch
+
 def parse_data(data, gpu_id, config):
     """
     Parse data from dataloader
     """
     input_dict = {}
     ground_truth_dict = {}
-    num_waypoints = config.task_config.num_waypoints
-    state = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle', 'occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
-    meta_array = ['num_vehicles', 'length', 'width', 'class', 'direction']
-    meta_keys = []
-    state_to_predict = ['occluded_occupancy_map', 'observed_occupancy_map', 'flow_map']
-    state_keys = []
-    state_to_predict_keys = []
-    # for scene_key in ['prv', 'cur', 'nxt']:
-    for scene_key in ['cur']:
-        for key in meta_array:
-            meta_keys.append(f'{scene_key}/meta/{key}')
-        for key in state:
-            state_keys.append(f'{scene_key}/state/his/{key}')
-            if key in state_to_predict:
-                state_to_predict_keys.append(f'{scene_key}/state/pred/{key}')
+    state_keys = [
+            'his/occluded_occupancy_map', 
+            'his/observed_occupancy_map', 
+            'his/flow_map', 
+            'his/observed_trajectories', 
+            'his/occluded_trajectories', 
+            'flow_origin_occupancy_map'
+            ]
+    state_to_predict_keys = [
+        'pred/occluded_occupancy_map', 
+        'pred/observed_occupancy_map', 
+        'pred/flow_map', 
+    ]
+    # # for scene_key in ['prv', 'cur', 'nxt']:
+    # for scene_key in ['cur']:
+    #     for key in meta_array:
+    #         meta_keys.append(f'{scene_key}/meta/{key}')
+    #     for key in state:
+    #         state_keys.append(f'{scene_key}/state/his/{key}')
+    #         if key in state_to_predict:
+    #             state_to_predict_keys.append(f'{scene_key}/state/pred/{key}')
     for key in state_keys:
         input_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
-    for key in meta_keys:
-        input_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
+
     for key in state_to_predict_keys:
-        if data[key].dim() == 4:
-            # OCC
-            batch_size, timestamps, height, width = data[key].shape
-            ground_truth_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
-        elif data[key].dim() == 5:
-            # FLOW
-            batch_size, timestamps, height, width, num_channels= data[key].shape
-            ground_truth_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
+        ground_truth_dict[key] = data[key].to(gpu_id, dtype=torch.float32)
             
     for key, val in input_dict.items():
         if torch.isnan(val).any():
@@ -40,6 +39,7 @@ def parse_data(data, gpu_id, config):
     for key, val in ground_truth_dict.items():
         if torch.isnan(val).any():
             ground_truth_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
+    
     return input_dict, ground_truth_dict
 
 def save_checkpoint(model, optimizer, scheduler, epoch, path, global_step):

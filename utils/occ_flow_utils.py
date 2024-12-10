@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 class GridMap():
     def __init__(self, config):
         self.data_sample_frequency = 25
@@ -17,17 +16,8 @@ class GridMap():
         self.num_waypoints = config.task_config.num_waypoints
         self.config = config
         
-        
-    def convert (self, coordinates):
-        # coordinates (Na, timestamps)
-        coordinates = np.concatenate([coordinates[:,:self.history_length][:, ::(self.history_length//self.num_his_points)], 
-                  coordinates[:,self.history_length: self.history_length + self.prediction_length][:,::(self.prediction_length // self.num_waypoints)]]
-                 ,axis=1
-                 )
-        return coordinates
     def get_agents_points(self, data):
         # start_pos = data['start_pos']
-        # print(f'start_pos {start_pos}')
         # start_time = data['start_time']
     
         # # Shift the x and timestamp of data to the origin
@@ -36,12 +26,9 @@ class GridMap():
     
         length = data['length'].reshape(-1, 1)
         width = data['width'].reshape(-1, 1)
-        yaw_angle = self.convert(data['yaw_angle'])
-        x_centers = self.convert(data['x_position'])
-        y_centers = self.convert(data['y_position']) + self.y_range[1]  # Shift y to the positive range
-        
-        
-        
+        yaw_angle = data['yaw_angle']
+        x_centers = data['x_position']
+        y_centers = data['y_position'] + self.y_range[1]  # Shift y to the positive range
         
         centers = np.stack([x_centers, y_centers], axis=-1)  # Shape: (num_agents, T, 2)
         num_of_agents = x_centers.shape[0]
@@ -71,7 +58,7 @@ class GridMap():
             np.concatenate([cos_yaw, -sin_yaw], axis=-1),  # First row: [cos, -sin]
             np.concatenate([sin_yaw, cos_yaw], axis=-1)  # Second row: [sin, cos]
         ], axis=-2)  # Shape: (num_agents, T, 2, 2)
-    
+        
         # Apply the rotation using batch matrix multiplication
         # Ensure grid_flat matches the shape for each time step
         # Ensure grid_flat matches the shape for each time step (num_agents, T, 768, 2)
@@ -84,83 +71,109 @@ class GridMap():
         transformed_points = transformed_points.reshape(
             num_of_agents, num_time_steps, self.agent_points_per_side_length, self.agent_points_per_side_width, 2
         )
-        
         # Add the center coordinates to shift the points accordingly
         vehicle_points = transformed_points + centers[:, :, None, None, :]  # Shape: (num_agents, T, 48, 16, 2)
         
         return vehicle_points
 
-    def get_map(self, num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx):
+    def get_map(self, num_time_steps, timestamp, vehicle_grids):
         
-        occupancy_map = np.zeros([num_of_agents, num_time_steps, *self.map_size], dtype=np.float16)
-        # map = np.repeat(map[None, ...], num_of_agents, axis=0)
-       # Extract valid indices from the valid_mask
-        valid_agent_indices, valid_time_indices = np.where(timestamp > 0)  # Shape: (N_valid,), (N_valid,)
-        # Get the corresponding vehicle grid points for valid entries
-        vehicle_grids_masked = vehicle_grids[valid_agent_indices, valid_time_indices]  # Shape: (N_valid, 2560, 2)
-        # Extract x and y coordinates
-        grid_x = vehicle_grids_masked[:, :, 0].ravel()  # Shape: (N_valid * 2560,)
-        grid_y = vehicle_grids_masked[:, :, 1].ravel()  # Shape: (N_valid * 2560,)
-        # Repeat agent and time indices to match grid points
+        num_points_per_vehicle = vehicle_grids.shape[2]
+        # timestamp (num_of_agents, num_time_steps)
+        timestamp_repeated = np.repeat(timestamp[..., None], num_points_per_vehicle, axis=2)
+        timestamp_valid = (timestamp_repeated > 0)
+        vehicle_grids_valid = (vehicle_grids[...,0] < self.config.occupancy_flow_map.grid_size.x) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.config.occupancy_flow_map.grid_size.y) & (vehicle_grids[...,1] >= 0)
+        valid_agent_indices, valid_time_indices, valid_agent_points_indices = (np.where(timestamp_valid & vehicle_grids_valid))
+        valid_agent_indices = valid_agent_indices.astype(np.int32)[..., np.newaxis]
+        valid_time_indices = valid_time_indices.astype(np.int32)[..., np.newaxis]
+        valid_agent_points_indices = valid_agent_points_indices.astype(np.int32)[..., np.newaxis]
         
-        agent_indices_repeated = np.repeat(valid_agent_indices, vehicle_grids_masked.shape[1])  # Shape: (N_valid * 2560,)
-        time_indices_repeated = np.repeat(valid_time_indices, vehicle_grids_masked.shape[1])  # Shape: (N_valid * 2560,)
-        valid_mask = (grid_x >= 0) & (grid_x < self.map_size[0]) & (grid_y >= 0) & (grid_y < self.map_size[1])
+        x_img_coord = vehicle_grids[valid_agent_indices, valid_time_indices, valid_agent_points_indices, 0]
+        y_img_coord = vehicle_grids[valid_agent_indices, valid_time_indices, valid_agent_points_indices, 1]
 
-        # Apply the mask to keep only valid indices
-        grid_x = grid_x[valid_mask]
-        grid_y = grid_y[valid_mask]
-        agent_indices_repeated = agent_indices_repeated[valid_mask]
-        time_indices_repeated = time_indices_repeated[valid_mask]
-        # Assign 1s to the map using advanced indexing
-        occupancy_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = 1
-        occluded_occupancy_map = np.sum(occupancy_map[occluded_idx], axis=0)
-        observed_occupancy_map = np.sum(occupancy_map[~occluded_idx], axis=0)
-        occluded_occupancy_map = np.nan_to_num(occluded_occupancy_map, nan=0.0)
-        observed_occupancy_map = np.nan_to_num(observed_occupancy_map, nan=0.0)
-        return np.clip(occluded_occupancy_map, 0, 1), np.clip(observed_occupancy_map, 0, 1)
-    
-    def get_flow(self, num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids):
-        
-        flow_map = np.zeros([num_of_agents, num_time_steps, *self.map_size, 2])
-        timestamp_shifted = np.roll(timestamp, shift=1, axis=1)
-        valid_mask = (timestamp > 0) & (timestamp_shifted > 0)
-        # get the first valid time index
-        first_true_idx = np.argmax(valid_mask, axis=1)
-        valid_mask[:, first_true_idx] = False  # First time step has no flow
-        valid_agent_indices, valid_time_indices = np.where(valid_mask)  # Shape: (N_valid,), (N_valid,)
-        
-        # Get the corresponding vehicle grid points for valid entries
-   
-        vehicle_grids_masked = vehicle_grids[valid_agent_indices, valid_time_indices]  # Shape: (N_valid, 2560, 2)
-        # vehicle_grids_masked_diff = (np.roll(vehicle_grids, shift=1, axis=1) - vehicle_grids)[valid_agent_indices, valid_time_indices]
-        vehicle_points_masked = (np.roll(vehicle_points, shift=1, axis=1) - vehicle_points)[valid_agent_indices, valid_time_indices]  # Shape: (N_valid, 2560, 2)
-        # set the first valid time index to 0
-        
-        
-        # Repeat agent and time indices to match grid points
-        agent_indices_repeated = np.repeat(valid_agent_indices, vehicle_grids_masked.shape[1])  # Shape: (N_valid * 2560,)
-        time_indices_repeated = np.repeat(valid_time_indices, vehicle_grids_masked.shape[1])  # Shape: (N_valid * 2560,)
-        
-        grid_x = vehicle_grids_masked[:, :, 0].ravel() # Shape: (N_valid * 2560,)
-        grid_y = vehicle_grids_masked[:, :, 1].ravel()  # Shape: (N_valid * 2560,)
-        valid_mask = (grid_x >= 0) & (grid_x < self.map_size[0]) & (grid_y >= 0) & (grid_y < self.map_size[1])
+        # [num_points_to_render, 3]
+        xy_img_coord = np.concatenate(
+          [
+              y_img_coord.astype(np.int32),
+              x_img_coord.astype(np.int32),
+              valid_time_indices,
+          ],
+          axis=1,
+        )
+        # [num_points_to_render]
+        gt_values = np.squeeze(np.ones_like(x_img_coord, dtype=np.float32), axis=-1)
+        topdown_shape = [self.config.occupancy_flow_map.grid_size.y, self.config.occupancy_flow_map.grid_size.x, num_time_steps]
+        # [batch_size, grid_height_cells, grid_width_cells, num_steps]
+        xy_img_coord_t = tuple(xy_img_coord.T) 
+        occupancy_map = np.zeros(topdown_shape, dtype=np.float32)
+        np.add.at(occupancy_map, xy_img_coord_t, gt_values.squeeze())
+        # scatter_nd() accumulates values if there are repeated indices.  Since
+        # we sample densely, this happens all the time.  Clip the final values.
+        return np.clip(occupancy_map, 0.0, 1.0)
 
-        # Apply the mask to keep only valid indices
-        grid_x = grid_x[valid_mask]
-        grid_y = grid_y[valid_mask]
-        agent_indices_repeated = agent_indices_repeated[valid_mask]
-        time_indices_repeated = time_indices_repeated[valid_mask]
-        flow_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = vehicle_points_masked.reshape(-1, 2)[valid_mask]
- 
-        return np.sum(flow_map, axis=0)
     
+    def get_flow(self, timestamp, vehicle_points, vehicle_grids):
+        # timestamp (num_of_agents, num_time_steps)
+        # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
+        num_flow_steps = self.config.task_config.num_waypoints + self.config.task_config.num_his_points - 1
+        num_points_per_vehicle = vehicle_grids.shape[2]
+        timestamp_repeated= timestamp[...,None].repeat(num_points_per_vehicle, axis = 2)
+        timestamp = timestamp_repeated[:, :-1,...]
+        timestamp_shifted = timestamp_repeated[:, 1:,...]
+        timestamp_valid = (timestamp > 0) & (timestamp_shifted > 0)
+        # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
+        vehicle_grids = vehicle_grids[:, 1:,...]
+        vehicle_grids_valid = (vehicle_grids[...,0] < self.config.occupancy_flow_map.grid_size.x) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.config.occupancy_flow_map.grid_size.y) & (vehicle_grids[...,1] >= 0)
+        valid_agent_indices, valid_time_indices, valid_agent_points_indices = (np.where(timestamp_valid & vehicle_grids_valid))
+        # cast the indices to int32
+        valid_agent_indices = valid_agent_indices.astype(np.int32)[..., np.newaxis]
+        valid_time_indices = valid_time_indices.astype(np.int32)[..., np.newaxis]
+        valid_agent_points_indices = valid_agent_points_indices.astype(np.int32)[..., np.newaxis]
+        
+        x_img_coord = vehicle_grids[valid_agent_indices, valid_time_indices, valid_agent_points_indices, 0]
+        y_img_coord = vehicle_grids[valid_agent_indices, valid_time_indices, valid_agent_points_indices, 1]
+        xy_img_coord = np.concatenate(
+          [
+              y_img_coord.astype(np.int32),
+              x_img_coord.astype(np.int32),
+              valid_time_indices,
+          ],
+          axis=1,
+        )
+        vehicle_points_dxy = vehicle_points[:, :-1,...] - vehicle_points[:, 1:,...]
+        vehicle_points_dx = vehicle_points_dxy[..., 0]
+        vehicle_points_dy = vehicle_points_dxy[..., 1]
+        
+        topdown_shape = [self.config.occupancy_flow_map.grid_size.y, self.config.occupancy_flow_map.grid_size.x, num_flow_steps]
+        gt_values_dx = vehicle_points_dx[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
+        gt_values_dy = vehicle_points_dy[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
+
+        # tf.scatter_nd() accumulates values when there are repeated indices.
+        # Keep track of number of indices writing to the same pixel so we can
+        # account for accumulated values.
+        # [num_points_to_render]
+        gt_values = np.squeeze(np.ones_like(x_img_coord, dtype=np.float32), axis=-1)
+
+        # [batch_size, grid_height_cells, grid_width_cells, num_flow_steps]
+        flow_x = np.zeros(topdown_shape, dtype=np.float32)
+        flow_y = np.zeros(topdown_shape, dtype=np.float32)
+        num_values_per_pixel = np.zeros(topdown_shape, dtype=np.float32)
+        xy_img_coord_t = tuple(xy_img_coord.T) 
+        np.add.at(flow_x, xy_img_coord_t, gt_values_dx.squeeze())
+        np.add.at(flow_y, xy_img_coord_t, gt_values_dy.squeeze())
+        np.add.at(num_values_per_pixel, xy_img_coord_t, gt_values)
+        flow_x = np.divide(flow_x, num_values_per_pixel, out=np.zeros_like(flow_x), where=(num_values_per_pixel != 0))
+        flow_y = np.divide(flow_y, num_values_per_pixel, out=np.zeros_like(flow_y), where=(num_values_per_pixel != 0))
+        flow = np.stack([flow_x, flow_y], axis=-1)
+        return flow
+        
+  
     def get_map_flow(self, data):
         num_of_agents = data['x_position'].shape[0]
         num_time_steps = self.num_his_points + self.num_waypoints
         if num_of_agents == 0:
             return  np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size]), np.zeros([num_time_steps, *self.map_size, 2])
-        timestamp = self.convert(data['timestamp'])
+        timestamp = data['timestamp']
         
         vehicle_points = self.get_agents_points(data)
         num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
@@ -173,153 +186,18 @@ class GridMap():
         
         # Calculate the occupancy map
         occluded_idx = np.argmax((timestamp > 0), axis=1) > self.num_his_points
-        num_of_agents_occluded = np.sum(occluded_idx)
-        num_of_agents_observed = num_of_agents - num_of_agents_occluded
-        
-        occluded_occupancy_map, observed_occupancy_map= self.get_map(num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx)
-        
-        # observed_occupancy_map = self.get_map(num_of_agents_observed, num_time_steps, timestamp[~occluded_idx], vehicle_grids[~occluded_idx])
+        occluded_occupancy_map = self.get_map(num_time_steps, timestamp[occluded_idx], vehicle_grids[occluded_idx])
+        observed_occupancy_map = self.get_map(num_time_steps, timestamp[~occluded_idx], vehicle_grids[~occluded_idx])
         # Calculate the flow map
-        flow_map = self.get_flow(num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids)
+        flow_map = self.get_flow(timestamp, vehicle_points, vehicle_grids)
         
-        
-                    
         # return occluded_occupancy_map, observed_occupancy_map, flow_map
         return  occluded_occupancy_map, observed_occupancy_map, flow_map
-    
-    
-# Test
+
 if __name__ == '__main__':
     from utils.file_utils import get_config
-    config = get_config()
+    config = get_config('./config_12.yaml')
     grid_map = GridMap(config)
-    test_data = np.load('/hdd/HetianGuo/I24/processed_data/scene_20.npy', allow_pickle=True).item()
-    occ_map, obs_map ,flow_map = grid_map.get_map_flow(test_data['cur'])
-    
-    
-    
-    
-    
-import torch
-
-class GridMap_gpu():
-    def __init__(self, config):
-        self.data_sample_frequency = 25
-        self.map_size = (config.occ_flow_map.grid_size_x, config.occ_flow_map.grid_size_y)
-        self.x_range = (0, config.preprocess.spatial_window * 3)
-        self.y_range = (-80, 80)
-        self.grid_size_x = (self.x_range[1] - self.x_range[0]) / self.map_size[0]
-        self.grid_size_y = (self.y_range[1] - self.y_range[0]) / self.map_size[1]
-        self.agent_points_per_side_length = config.preprocessing.agent_points.per_side_length
-        self.agent_points_per_side_width =config.preprocessing.agent_points.per_side_width
-        self.his_len = config.task_config.history_length
-        
-
-    def get_agents_points(self, data):
-        device = data['length'].device  # Get device from input data
-        length = data['length'].view(-1, 1).to(device)
-        width = data['width'].view(-1, 1).to(device)
-        yaw_angle = data['yaw_angle'].to(device)
-        x_centers = data['x_position'].to(device)
-        y_centers = data['y_position'].to(device) + self.y_range[1]
-
-        centers = torch.stack([x_centers, y_centers], dim=-1)
-        num_of_agents = x_centers.size(0)
-        num_time_steps = x_centers.size(1)
-
-        # Base grid creation on GPU
-        x = torch.linspace(-1, 1, self.agent_points_per_side_length, device=device).view(-1, 1)
-        y = torch.linspace(-1, 1, self.agent_points_per_side_width, device=device).view(1, -1)
-        base_grid = torch.stack(torch.meshgrid(x.squeeze(), y.squeeze(), indexing='ij'), dim=-1)
-
-        # Scale based on vehicle dimensions
-        lengths_rescaled = length[:, None, None] / 2
-        widths_rescaled = width[:, None, None] / 2
-        grid_scaled = torch.zeros((num_of_agents, self.agent_points_per_side_length, self.agent_points_per_side_width, 2), device=device)
-        grid_scaled[..., 0] = (base_grid[..., 0] * lengths_rescaled).squeeze()
-        grid_scaled[..., 1] = (base_grid[..., 1] * widths_rescaled).squeeze()
-        grid_flat = grid_scaled.view(num_of_agents, -1, 2)
-
-        # Rotation matrices
-        cos_yaw = torch.cos(yaw_angle).view(num_of_agents, num_time_steps, 1, 1)
-        sin_yaw = torch.sin(yaw_angle).view(num_of_agents, num_time_steps, 1, 1)
-        rotation_matrix = torch.cat([torch.cat([cos_yaw, -sin_yaw], dim=-1), torch.cat([sin_yaw, cos_yaw], dim=-1)], dim=-2)
-
-        # Batch matrix multiplication
-        grid_flat = grid_flat[:, None, :, :].expand(-1, num_time_steps, -1, -1)
-        transformed_points = torch.einsum('ntij,ntkj->ntki', rotation_matrix.to(dtype=torch.float32), grid_flat)
-
-        transformed_points = transformed_points.view(num_of_agents, num_time_steps, self.agent_points_per_side_length, self.agent_points_per_side_width, 2)
-        vehicle_points = transformed_points + centers[:, :, None, None, :]
-
-        return vehicle_points
-
-    def get_map(self, num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx):
-        device = vehicle_grids.device
-        occupancy_map = torch.zeros((num_of_agents, num_time_steps, *self.map_size), dtype=torch.float16, device=device)
-
-        valid_agent_indices, valid_time_indices = torch.where(timestamp > 0)
-        vehicle_grids_masked = vehicle_grids[valid_agent_indices, valid_time_indices]
-        grid_x, grid_y = vehicle_grids_masked[..., 0].flatten(), vehicle_grids_masked[..., 1].flatten()
-
-        agent_indices_repeated = valid_agent_indices.repeat_interleave(vehicle_grids_masked.size(1))
-        time_indices_repeated = valid_time_indices.repeat_interleave(vehicle_grids_masked.size(1))
-        valid_mask = (grid_x >= 0) & (grid_x < self.map_size[0]) & (grid_y >= 0) & (grid_y < self.map_size[1])
-
-        grid_x, grid_y = grid_x[valid_mask], grid_y[valid_mask]
-        agent_indices_repeated = agent_indices_repeated[valid_mask]
-        time_indices_repeated = time_indices_repeated[valid_mask]
-        occupancy_map[agent_indices_repeated, time_indices_repeated, grid_x, grid_y] = 1
-
-        return occupancy_map[occluded_idx].sum(dim=0), occupancy_map[~occluded_idx].sum(dim=0)
-
-    def get_flow(self, num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids):
-        device = vehicle_points.device
-        flow_map = torch.zeros((num_of_agents, num_time_steps, *self.map_size, 2), device=device)
-        timestamp_shifted = torch.roll(timestamp, shifts=1, dims=1)
-        valid_mask = (timestamp > 0) & (timestamp_shifted > 0)
-
-        first_true_idx = torch.argmax(valid_mask.int(), dim=1)
-        valid_mask[torch.arange(valid_mask.size(0)), first_true_idx] = False
-        valid_agent_indices, valid_time_indices = torch.where(valid_mask)
-
-        vehicle_grids_masked = vehicle_grids[valid_agent_indices, valid_time_indices]
-        vehicle_points_masked = (torch.roll(vehicle_points, shifts=1, dims=1) - vehicle_points)[valid_agent_indices, valid_time_indices]
-
-        agent_indices_repeated = valid_agent_indices.repeat_interleave(vehicle_grids_masked.size(1))
-        time_indices_repeated = valid_time_indices.repeat_interleave(vehicle_grids_masked.size(1))
-        grid_x, grid_y = vehicle_grids_masked[..., 0].flatten(), vehicle_grids_masked[..., 1].flatten()
-        valid_mask = (grid_x >= 0) & (grid_x < self.map_size[0]) & (grid_y >= 0) & (grid_y < self.map_size[1])
-
-        agent_indices_repeated = agent_indices_repeated[valid_mask]
-        time_indices_repeated = time_indices_repeated[valid_mask]
-        flow_map[agent_indices_repeated, time_indices_repeated, grid_x[valid_mask], grid_y[valid_mask]] = vehicle_points_masked.view(-1, 2)[valid_mask]
-
-        return np.nan_to_num(flow_map.sum(dim=0))
-
-    def get_map_flow(self, data):
-        device = data['x_position'].device
-        num_of_agents = data['x_position'].size(0)
-        num_time_steps = data['x_position'].size(1)
-
-        if num_of_agents == 0:
-            return (
-                torch.zeros((num_time_steps, *self.map_size), device=device),
-                torch.zeros((num_time_steps, *self.map_size), device=device),
-                torch.zeros((num_time_steps, *self.map_size, 2), device=device)
-            )
-
-        timestamp = data['timestamp']
-        vehicle_points = self.get_agents_points(data)
-        vehicle_points = vehicle_points.view(num_of_agents, num_time_steps, self.agent_points_per_side_length * self.agent_points_per_side_width, 2)
-
-        if torch.isnan(vehicle_points).any() or torch.isinf(vehicle_points).any():
-            vehicle_points = torch.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
-
-        vehicle_grids = torch.floor(vehicle_points / torch.tensor([self.grid_size_x, self.grid_size_y], device=device)).int()
-        occluded_idx = torch.argmax((timestamp > 0).int(), dim=1) > self.config.task_config.num_his_points
-
-        occluded_occupancy_map, observed_occupancy_map = self.get_map(num_of_agents, num_time_steps, timestamp, vehicle_grids, occluded_idx)
-        flow_map = self.get_flow(num_of_agents, num_time_steps, timestamp, vehicle_points, vehicle_grids)
-
-        return occluded_occupancy_map, observed_occupancy_map, flow_map
+    test_data = np.load(config.paths.processed_data + 'scene_1014.npy', allow_pickle=True).item()
+    occ_map, obs_map ,flow_map = grid_map.get_map_flow(test_data)
+    print(occ_map.shape, obs_map.shape, flow_map.shape)

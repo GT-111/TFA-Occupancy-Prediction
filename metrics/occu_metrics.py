@@ -232,8 +232,8 @@ def _flow_warp(
   # [height, width, 2] but storing x, y coordinates.
   identity_indices = torch.stack(
       (
-          w_idx,
-          h_idx,
+          w_idx.T,
+          h_idx.T,
       ),
       dim=-1,
   )
@@ -258,6 +258,7 @@ def _flow_warp(
     # warped_indices = warped_indices + 1
     # NOTE: tensorflow graphics expects warp to contain (x, y) as well.
     # [batch_size, height, width, 2]
+    print(flow_origin_occupancy.shape)
     warped_origin = sample(
         image=flow_origin_occupancy,
         warp=warped_indices,
