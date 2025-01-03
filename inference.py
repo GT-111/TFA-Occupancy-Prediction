@@ -1,5 +1,5 @@
 from utils.file_utils import get_config, get_last_checkpoint
-from utils.dataset_utils import get_dataloader_ddp, get_road_map, get_trajs
+from utils.dataset_utils import get_dataloader_ddp, get_road_map
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
 from tqdm import tqdm
@@ -90,23 +90,28 @@ def model_inference(gpu_id, world_size, config):
     valid_loss_warp = MeanMetric().to(gpu_id)
     valid_metrics = OGMFlowMetrics(gpu_id, no_warp=False)
     model.eval()
-    road_map = torch.from_numpy(get_road_map(config)).to(gpu_id, dtype=torch.float32)
     with torch.no_grad():
         loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
         for batch, data in loop:
+            batch_size = data['his/observed_occupancy_map'].shape[0]
             input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
-            for key, val in input_dict.items():
-                # print if value has nan
-                if torch.isnan(val).any():
-                    input_dict[key] = torch.where(torch.isnan(val), torch.zeros_like(val), val)
-            his_occupancy_map = input_dict['cur/state/his/observed_occupancy_map']
-            his_flow_map = input_dict['cur/state/his/flow_map']
-            flow_origin_occupancy = his_occupancy_map[:, -1, :, :, torch.newaxis]
-            obs_traj, occ_traj= get_trajs(input_dict, config)
-            # self,occupancy_map, flow_map, road_map, obs_traj, occ_traj
-            his_occupancy_map = his_occupancy_map.permute([0,2,3,1]) # B H W T
-            his_flow_map = his_flow_map[:,-1,:,:,:] # B H W 2
-            outputs = model(his_occupancy_map, his_flow_map, road_map, obs_traj, occ_traj)
+            # get the input
+            his_occupancy_map = torch.clamp(input_dict['his/observed_occupancy_map'] + input_dict['his/occluded_occupancy_map'], 0, 1)
+            his_flow_map = input_dict['his/flow_map']
+            his_occluded_trajectories = input_dict['his/occluded_trajectories']
+            his_observed_trajectories = input_dict['his/observed_trajectories']
+            flow_origin_occupancy = input_dict['flow_origin_occupancy_map']
+            
+            # get the ground truth
+            gt_occluded_occupancy_logits = ground_truth_dict['pred/occluded_occupancy_map']
+            gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
+            gt_flow = ground_truth_dict['pred/flow_map']
+            
+            road_map = torch.from_numpy(get_road_map(config, batch_size)).to(gpu_id, dtype=torch.float32)
+            
+            
+            his_flow_map = his_flow_map[...,-1,:] # B H W 2
+            outputs = model(his_occupancy_map, his_flow_map, road_map, his_observed_trajectories, his_occluded_trajectories)
             # compute losses
             pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs(outputs, config.task_config.num_waypoints)
             
@@ -117,15 +122,11 @@ def model_inference(gpu_id, world_size, config):
             pred_dict = {'observed_occupancy_map': pred_observed_occupancy_logits, 'flow_map': pred_flow_logits, 'occluded_occupancy_map': pred_occluded_occupancy_logits}
             pred_dict_np = {key: val.cpu().numpy().squeeze() for key, val in pred_dict.items()}
             # visualize(config, input_dict_np, str(batch), vis_occ=True, vis_flow=True,vis_optical_flow=False, pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
-            visualize(config, input_dict_np, str(batch), vis_occ=False, vis_flow=True, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
-            visualize(config, input_dict_np, str(batch), vis_occ=True, vis_flow=False, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
-            gt_occluded_occupancy_logits = ground_truth_dict['cur/state/pred/occluded_occupancy_map']
-            gt_observed_occupancy_logits = ground_truth_dict['cur/state/pred/observed_occupancy_map']
-            B, T, H, W = gt_observed_occupancy_logits.shape
-            gt_occluded_occupancy_logits = gt_occluded_occupancy_logits.reshape(B, T, H, W, 1)
-            gt_observed_occupancy_logits = gt_observed_occupancy_logits.reshape(B, T, H, W, 1)
-            
-            gt_flow = ground_truth_dict['cur/state/pred/flow_map']
+            visualize(config, {'cur': input_dict_np}, str(batch), vis_occ=False, vis_flow=True, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
+            # visualize(config, {'cur': input_dict_np}, str(batch), vis_occ=True, vis_flow=False, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
+            visualize(config, {'cur': input_dict_np}, str(batch), vis_occ=True, vis_flow=False, vis_optical_flow=True,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
+            visualize(config, {'cur': input_dict_np}, str(batch), vis_occ=True, vis_flow=False, vis_optical_flow=False,pred_dict=pred_dict_np, ground_truth=False, valid_dict={'cur': 1})
+
             loss_dict = loss_fn(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
             loss_value = torch.sum(sum(loss_dict.values()))
             
@@ -156,7 +157,7 @@ def model_inference(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('./config_12_inference.yaml')
+    config = get_config('./configs/config_12_inference.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"

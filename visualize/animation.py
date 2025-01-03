@@ -22,8 +22,8 @@ def process_data_for_visualization(config, data_dic, ground_truth=True, pred_dic
         history_data_dic['prv']['flow_map_rendered'] = np.sum(history_data_dic['prv']['flow_map'], axis=0)
     
     if 'cur' in valid_dict:
-        history_data_dic['cur']['occupancy_map'] = data_dic['cur']['his/observed_occupancy_map']
-        history_data_dic['cur']['flow_map'] = data_dic['cur']['his/flow_map']
+        history_data_dic['cur']['occupancy_map'] = data_dic['cur']['his/observed_occupancy_map'].transpose(2, 0, 1)
+        history_data_dic['cur']['flow_map'] = data_dic['cur']['his/flow_map'].transpose(2, 0, 1, 3)
         history_data_dic['cur']['flow_map_rendered'] = np.sum(history_data_dic['cur']['flow_map'], axis=0)
         
     if 'nxt' in valid_dict:
@@ -113,8 +113,8 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
     X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict, pred_dict=pred_dict, ground_truth=ground_truth)
 
     road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
-    num_history_time_steps = history_data_dic['cur']['occupancy_map'].shape[-1]
-    num_future_time_steps = future_data_dic['cur']['occupancy_map'].shape[-1]
+    num_history_time_steps = history_data_dic['cur']['occupancy_map'].shape[0]
+    num_future_time_steps = future_data_dic['cur']['occupancy_map'].shape[0]
     # Define the custom colormap: white from 0 to 0.5, then gradually red from 0.5 to 1
     colors_occ = [
         (1, 1, 1),  # White for 0
@@ -158,20 +158,20 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         # img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
         # img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
         if 'prv' in valid_dict:  
-            img_prv_obs_ogm = axes[0].imshow(history_data_dic['prv']['occupancy_map'][:,:,0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            img_prv_obs_ogm = axes[0].imshow(history_data_dic['prv']['occupancy_map'][0, :,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
         if 'cur' in valid_dict:  
-            img_cur_obs_ogm = axes[1].imshow(history_data_dic['cur']['occupancy_map'][:,:,0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            img_cur_obs_ogm = axes[1].imshow(history_data_dic['cur']['occupancy_map'][0, :,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
         if 'nxt' in valid_dict:
-            img_nxt_obs_ogm = axes[2].imshow(history_data_dic['nxt']['occupancy_map'][:,:,0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+            img_nxt_obs_ogm = axes[2].imshow(history_data_dic['nxt']['occupancy_map'][0, :,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
 
     if vis_flow:
         
         if 'prv' in valid_dict:  
-            quiver_prv = initialize_quiver(axes[0], history_data_dic['prv']['flow_map'][:,:,0,:], X, Y)
+            quiver_prv = initialize_quiver(axes[0], history_data_dic['prv']['flow_map'][0, :,:,:], X, Y)
         if 'cur' in valid_dict:
-            quiver_cur = initialize_quiver(axes[1], history_data_dic['cur']['flow_map'][:,:,0,:], X, Y)
+            quiver_cur = initialize_quiver(axes[1], history_data_dic['cur']['flow_map'][0, :,:,:], X, Y)
         if 'nxt' in valid_dict:
-            quiver_nxt = initialize_quiver(axes[2], history_data_dic['nxt']['flow_map'][:,:,0,:], X, Y)
+            quiver_nxt = initialize_quiver(axes[2], history_data_dic['nxt']['flow_map'][0, :,:,:], X, Y)
     
     # Animation update function
     def update(frame):
@@ -189,8 +189,8 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         axes[2].scatter(X[::8, ::8], Y[::8, ::8], color='black', s=1, alpha=0.5)   
         if frame <= num_history_time_steps - 1:
             data_dic = history_data_dic
-            flow_frame = frame - 1
-            if frame == 0:
+            flow_frame = frame - 2
+            if flow_frame <= 0:
                 flow_frame = 0
         else:
             data_dic = future_data_dic
@@ -221,20 +221,20 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
             # img_cur_occ_ogm = axes[1].imshow(cur_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
             # img_nxt_occ_ogm = axes[2].imshow(nxt_scene_occ_ogm[frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
             if 'prv' in valid_dict: 
-                img_prv_obs_ogm = axes[0].imshow(data_dic['prv']['occupancy_map'][:,:,frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+                img_prv_obs_ogm = axes[0].imshow(data_dic['prv']['occupancy_map'][frame, :,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
             if 'cur' in valid_dict: 
-                img_cur_obs_ogm = axes[1].imshow(data_dic['cur']['occupancy_map'][:,:,frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+                img_cur_obs_ogm = axes[1].imshow(data_dic['cur']['occupancy_map'][frame,:,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
             if 'nxt' in valid_dict: 
-                img_nxt_obs_ogm = axes[2].imshow(data_dic['nxt']['occupancy_map'][:,:,frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
+                img_nxt_obs_ogm = axes[2].imshow(data_dic['nxt']['occupancy_map'][frame, :,:], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
             
 
         if vis_flow:
             if 'prv' in valid_dict: 
-                quiver_prv = initialize_quiver(axes[0], data_dic['prv']['flow_map'][:,:,flow_frame,:], X, Y)
+                quiver_prv = initialize_quiver(axes[0], data_dic['prv']['flow_map'][flow_frame,:,:,:], X, Y)
             if 'cur' in valid_dict: 
-                quiver_cur = initialize_quiver(axes[1], data_dic['cur']['flow_map'][:,:,flow_frame,:], X, Y)
+                quiver_cur = initialize_quiver(axes[1], data_dic['cur']['flow_map'][flow_frame,:,:,:], X, Y)
             if 'nxt' in valid_dict: 
-                quiver_nxt = initialize_quiver(axes[2], data_dic['nxt']['flow_map'][:,:,flow_frame,:], X, Y)
+                quiver_nxt = initialize_quiver(axes[2], data_dic['nxt']['flow_map'][flow_frame,:,:,:], X, Y)
         
         return_list = [img_road_map]
         if vis_flow:
@@ -330,9 +330,9 @@ if __name__ == '__main__':
     gridmap = GridMap(config)
     dataset = I24Dataset(config)
     k = 3
-    name = "scene_738985"
+    name = "scene_419862"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()
-    test_data = {'cur': test_data}
+    # test_data = {'cur': test_data}
     print('loaded')
-    visualize(config, test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=False, valid_dict={'cur': 1})
-    test_flow_wrap_occupancy(test_data['cur'], config, k)
+    # visualize(config, test_data, name, vis_occ=True, vis_flow=True, vis_optical_flow=False, valid_dict={'cur': 1})
+    # test_flow_wrap_occupancy(test_data['cur'], config, k)

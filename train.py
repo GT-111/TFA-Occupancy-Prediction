@@ -17,8 +17,8 @@ from torch.distributed import init_process_group, destroy_process_group
 import warnings
 warnings.filterwarnings("ignore")
 ogm_weight  = 500
-occ_weight  = 500
-flow_weight = 1.0
+occ_weight  = 1000
+flow_weight = 10
 flow_origin_weight = 1000
 
 
@@ -121,7 +121,7 @@ def model_training(gpu_id, world_size, config):
             
             
             his_flow_map = his_flow_map[...,-1,:] # B H W 2
-            outputs = model(his_occupancy_map, his_flow_map, road_map, his_observed_trajectories, his_observed_trajectories)
+            outputs = model(his_occupancy_map, his_flow_map, road_map, his_observed_trajectories, his_occluded_trajectories)
             pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = training_utils.parse_outputs(outputs, config.task_config.num_waypoints)
     
             
@@ -152,7 +152,8 @@ def model_training(gpu_id, world_size, config):
                                         "loss": loss_value
                                     },
                                     global_step=global_step
-                                    )   
+                                    )  
+            
         scheduler.step()
         
         ## validate

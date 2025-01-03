@@ -5,7 +5,7 @@ from utils.occ_flow_utils import GridMap
 from tqdm import tqdm
 import time
 import matplotlib.pyplot as plt
-config = get_config('config_12.yaml')
+config = get_config('configs/config_12.yaml')
 
 grid_map = GridMap(config)
 start_pos = config.data_attributes.start_position * 5280
