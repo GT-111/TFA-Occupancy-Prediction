@@ -8,7 +8,7 @@ from losses.occupancy_flow_loss import OGMFlow_loss
 import torch
 import os
 from metrics.occu_metrics import compute_occupancy_flow_metrics
-from modules.OFMPNet import OFMPNet
+from models.OFMPNet import OFMPNet
 from metrics.metric import OGMFlowMetrics
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp

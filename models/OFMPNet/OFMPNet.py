@@ -1,9 +1,9 @@
 import easydict
 import torch
-from modules.SwinTransformerEncoder import SwinTransformerEncoder
-from modules.FlowGuidedMultiHeadSelfAttention import FlowGuidedMultiHeadSelfAttention
-from modules.Pyramid3DDecoder import Pyramid3DDecoder
-from modules.TrajNet import TrajNetCrossAttention
+from .SwinTransformerEncoder import SwinTransformerEncoder
+from .FlowGuidedMultiHeadSelfAttention import FlowGuidedMultiHeadSelfAttention
+from .Pyramid3DDecoder import Pyramid3DDecoder
+from .TrajNet import TrajNetCrossAttention
 
 
 
