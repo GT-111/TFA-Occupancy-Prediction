@@ -32,6 +32,7 @@ class UNetDecoder(nn.Module):
             for i in range(len(embed_dims)-1, 0, -1)
         ])
         
+        self.up_conv = nn.ConvTranspose2d(embed_dims[0], embed_dims[0], kernel_size=2, stride=2)
         self.final_conv = nn.Conv2d(embed_dims[0], out_channels, kernel_size=1)  
 
     def _upsample_block(self, in_channels, out_channels):
@@ -63,8 +64,12 @@ class UNetDecoder(nn.Module):
             x = torch.cat([x, skip], dim=1)
 
             # 🔹 3. Apply refinement convolution
-            x = up_block[1](x)  
-        return self.final_conv(x)  
+            x = up_block[1](x)
+        
+        # 🔹 4. Apply final convolutio
+        # x = self.up_conv(x)
+        x = self.final_conv(x)
+        return x
 
 class ConvNeXtUNet(nn.Module):
     """ConvNeXt-based multi-scale feature extraction with U-Net decoding."""
@@ -92,7 +97,7 @@ class ConvNeXtUNet(nn.Module):
         # Temporal modeling with Conv3D
         self.temporal_conv = nn.Conv3d(
             in_channels=out_channels, out_channels=out_channels, 
-            kernel_size=(self.temporal_depth, 1, 1), padding=(1, 0, 0), 
+            kernel_size=(self.temporal_depth, 1, 1), padding=(0, 0, 0), 
             stride=(1, 1, 1)
         )
 
@@ -112,29 +117,29 @@ class ConvNeXtUNet(nn.Module):
         features = self.convnext(x)
 
         # Print extracted feature sizes for verification
-        print(f"🔹 Extracted Feature Shapes: {[f.shape for f in features]}")  
+
 
         assert len(features) == len(self.unet_decoder.upsample_blocks) + 1, (
             f"Expected {len(self.unet_decoder.upsample_blocks) + 1} feature maps, got {len(features)}."
         )
 
         fused_features = self.unet_decoder(features)  
+        
+        fused_features = rearrange(fused_features, "(b t) c h w -> b c t h w", b=B, t=T)  
+        
+        x = self.temporal_conv(fused_features).squeeze(2)
+        
+        return x  # Final shape: (B, D, H, W)
 
-        fused_features = rearrange(fused_features, "(b t) c h w -> b t c h w", b=B, t=T)  
-        print("🔹 Fused Feature Shape:", fused_features.shape)
-        x = self.temporal_conv(fused_features)  
+if __name__ == '__main__':
+    # Initialize model
+    model = ConvNeXtUNet(img_size=(256, 256), in_chans=3, out_channels=32, temporal_depth=3)
 
-        return x  # Final shape: (B, T, H, W, D)
+    # Create a dummy input (B=4, T=3, C=3, H=64, W=80)
+    dummy_input = torch.randn(4, 3, 3, 256, 256)
 
+    # Forward pass
+    output = model(dummy_input)
 
-# Initialize model
-model = ConvNeXtUNet(img_size=(256, 256), in_chans=3, out_channels=32)
-
-# Create a dummy input (B=4, T=3, C=3, H=64, W=80)
-dummy_input = torch.randn(4, 3, 3, 256, 256)
-
-# Forward pass
-output = model(dummy_input)
-
-# Verify output shape
-print("✅ Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)
+    # Verify output shape
+    print("✅ Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)
