@@ -125,13 +125,11 @@ class ConvLSTM(nn.Module):
 
 
 if __name__ == '__main__':
-    # Example input: (batch=2, timesteps=5, channels=4, height=256, width=256)
+
     input_data = torch.randn(2, 5, 4, 256, 256)
 
-    # Create ConvLSTM model
     conv_lstm = ConvLSTM(input_dim=4, hidden_dim=[64, 128], kernel_size=(3, 3), num_layers=2)
 
-    # Compute output
     output, last_state = conv_lstm(input_data)
 
     print("ConvLSTM Output Shape:", output[-1].shape)  # Expected: [2, 5, 128, 256, 256]

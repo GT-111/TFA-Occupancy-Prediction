@@ -142,4 +142,4 @@ if __name__ == '__main__':
     output = model(dummy_input)
 
     # Verify output shape
-    print("✅ Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)
+    print("Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)
