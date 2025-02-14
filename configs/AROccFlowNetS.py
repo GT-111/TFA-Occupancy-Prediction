@@ -84,31 +84,40 @@ config = dict(
         ),
     ),
     models=dict(
-        convlstm=dict(
-            input_dim=input_dim, 
-            hidden_dim=[64, hidden_dim],
-            kernel_size=(3, 3), 
-            num_layers=2,
-            batch_first=True, 
-            bias=True, 
-            return_all_layers=False
-        ),
-        convnextunet=dict(
-            img_size=img_size,
-            in_chans=input_dim,
-            out_channels=hidden_dim,
-            embed_dims=[96, 192, 384, 768],
-            temporal_depth=num_waypoints,
-        ),
-        motionpredictor=dict(
-            num_states=num_states,
+        aroccflownet=dict(
+            num_time_steps=num_waypoints,
             hidden_dim=hidden_dim,
-            num_heads=num_heads,
+            nhead=num_heads,
             dropout_prob=dropout_prob,
             num_layers=1,
-            num_motion_mode=num_motion_mode,
-            num_time_steps=num_waypoints,
+            
+            convlstm=dict(
+                input_dim=input_dim, 
+                hidden_dim=[64, hidden_dim],
+                kernel_size=(3, 3), 
+                num_layers=2,
+                batch_first=True, 
+                bias=True, 
+                return_all_layers=False
+            ),
+            convnextunet=dict(
+                img_size=img_size,
+                in_chans=input_dim,
+                out_channels=hidden_dim,
+                embed_dims=[96, 192, 384, 768],
+                temporal_depth=num_his_points,
+            ),
+            motionpredictor=dict(
+                num_states=num_states,
+                hidden_dim=hidden_dim,
+                num_heads=num_heads,
+                dropout_prob=dropout_prob,
+                num_layers=1,
+                num_motion_mode=num_motion_mode,
+                num_time_steps=num_waypoints,
+            ),
         ),
+        
         # pretrained='runwayml/stable-diffusion-v1-5',
         # pipeline_name='StableDiffusionControlPipeline',
         # checkpoint=ckpt_2d,

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from timm.models.convnext import convnext_small  # Use ConvNeXt Base
 from utils.config import load_config
+from utils.SampleModelInput import SampleModelInput
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""
     def __init__(self, pretrained=True):
@@ -101,8 +102,9 @@ class ConvNeXtUNet(nn.Module):
             stride=(1, 1, 1)
         )
 
-    def forward(self, x):
-        B, T, C, H, W = x.shape
+    def forward(self, occupancy_map, flow_map):
+        fearture_map = torch.cat([occupancy_map, flow_map], dim=-3)
+        B, T, C, H, W = fearture_map.shape
 
         assert (H, W) == self.img_size, (
             f"Expected input size ({self.img_size}), but got ({H}, {W})."
@@ -111,10 +113,10 @@ class ConvNeXtUNet(nn.Module):
             f"Temporal depth ({self.temporal_depth}) must not exceed number of frames ({T})."
         )
 
-        x = rearrange(x, "b t c h w -> (b t) c h w")  
+        fearture_map = rearrange(fearture_map, "b t c h w -> (b t) c h w")  
 
         # Extract multi-scale features from ConvNeXt
-        features = self.convnext(x)
+        features = self.convnext(fearture_map)
 
         # Print extracted feature sizes for verification
 
@@ -127,20 +129,20 @@ class ConvNeXtUNet(nn.Module):
         
         fused_features = rearrange(fused_features, "(b t) c h w -> b c t h w", b=B, t=T)  
         
-        x = self.temporal_conv(fused_features).squeeze(2)
+        out = self.temporal_conv(fused_features).squeeze(2)
         
-        return x  # Final shape: (B, D, H, W)
+        return out  # Final shape: (B, D, H, W)
 
 if __name__ == '__main__':
     config = load_config("configs/AROccFlowNetS.py")
     # Initialize model
     model = ConvNeXtUNet(config.models.convnextunet)
-
-    # Create a dummy input (B=4, T=3, C=3, H=64, W=80)
-    dummy_input = torch.randn(4, 20, 3, 256, 256)
-
+    input_dic = SampleModelInput().generate_sample_input()
+    occupancy_map = input_dic['occupancy_map']
+    flow_map = input_dic['flow_map']
+    input_data = torch.cat([occupancy_map, flow_map], dim=2)
     # Forward pass
-    output = model(dummy_input)
+    output = model(input_data)
 
     # Verify output shape
     print("Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)

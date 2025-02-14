@@ -2,34 +2,63 @@ import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.AROccFlowNet.PositionalEncoding import positional_encoding
 from utils.config import load_config
-# Q^A [8, 20, 64]
-# Q_M^A [8, 20, 6, 64] 
-# H_M^A[8, 20, 6, 10, 2]
-# S_M^A[8, 20, 6]
-# q_a = torch.rand(8, 20, 64)
-# q_m_a = torch.rand(8, 20, 6, 64)
-# s_m_a = torch.rand(8, 20, 6)
+from models.AROccFlowNet.EfficientMotionPredictor import MotionPredictor
+from models.AROccFlowNet.ConvNeXtEncoder import ConvNeXtUNet
+from models.AROccFlowNet.ConvLSTM import ConvLSTM
+from models.AROccFlowNet.PositionalEncoding import positional_encoding
+from utils.SampleModelInput import SampleModelInput
+class AROccFlowNet(nn.Module):
 
-# pos_encoding = positional_encoding(T=10, D=2)  # Shape (1, 1, 1, 10, 2)
+    def __init__(self, config):
+        super().__init__()
+        self.num_time_steps = config.num_time_steps
+        self.hidden_dim = config.hidden_dim
+        self.motion_predictor = MotionPredictor(config.motionpredictor)
+        self.multi_scale_feature_map_encoder = ConvNeXtUNet(config.convnextunet)
+        # self.coarse_featurte_map_encoder = ConvLSTM(config.convlstm)
+        self.trajs_embedding = nn.Linear(in_features=2, out_features=self.hidden_dim)
+        self.projection_list = nn.ModuleList([
+            nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim) for _ in range(self.num_time_steps)
+        ])
+        self.nhead = config.nhead
+        self.num_layers = config.num_layers
+        self.transformer_decoder = nn.TransformerDecoder(
+            nn.TransformerDecoderLayer(d_model=self.hidden_dim, nhead=self.nhead),
+            num_layers=self.num_layers
+        )
+    def forward(self, input_data_dic):
+        cur_agent_states = input_data_dic['cur/his/agent_states']
+        cur_agent_types = input_data_dic['cur/his/agent_types']
+        cur_predicted_trajs, cur_predicted_traj_scores, cur_context, cur_agent_embeddings = self.motion_predictor(cur_agent_states, cur_agent_types)
+        cur_occupancy_map = input_data_dic['cur/his/occupancy_map']
+        cur_flow_map = input_data_dic['cur/his/flow_map']
+        # TODO: Add the adjacent scene joint_feature
+        cur_joint_feature = self.multi_scale_feature_map_encoder(cur_occupancy_map, cur_flow_map)
+        batch_size, num_agents, num_motion_mode, num_time_steps, _ = cur_predicted_trajs.size()
+        cur_predicted_trajs_with_pe = cur_predicted_trajs + positional_encoding(T=self.num_time_steps, D=2)
+        cur_marginal_feature = einops.reduce(
+            self.trajs_embedding(cur_predicted_trajs_with_pe), 'b a m t h -> b a m h', 'max'
+        )
+        cur_predicted_traj_score = einops.rearrange(cur_predicted_traj_scores, 'b a m -> b a m 1')
+        cur_fused_feature = torch.matmul(
+            einops.rearrange((cur_marginal_feature + einops.repeat(cur_agent_embeddings, 'b a h -> b a m h', m=num_motion_mode)), 'b a m h -> b a h m'), cur_predicted_traj_score
+        ).view(batch_size, num_agents, self.hidden_dim)
+        
+        occupancy_feature_list = []
+        occupancy_feature_list.append(cur_joint_feature)
+        for time_step in range(self.num_time_steps):
+            cur_fused_feature_projected = self.projection_list[time_step].forward(cur_fused_feature)
+            if time_step == 0:
+                prv_occupancy_feature = cur_joint_feature
+            else:
+                prv_occupancy_feature = occupancy_feature_list[time_step - 1]
+            # TODO: Add the adjacent scene joint_feature
+            cur_occpancy_feature = self.transformer_decoder.forward(prv_occupancy_feature, cur_fused_feature_projected)
+        return occupancy_feature_list
 
-# predicted_trajs = torch.randn(8, 20, 6, 10, 2)  # Example input
-# predicted_trajs_with_pe = predicted_trajs + pos_encoding  # Broadcasting addition
-# linear1 = nn.Linear(2, 64)
-# h_m_a = einops.reduce(linear1(predicted_trajs_with_pe), 'b a m t h -> b a m h', 'max')
-# # claculate the weighted sum use score
-# score = einops.rearrange(F.softmax(s_m_a, dim=-1), 'b a m -> b a m 1')
-
-# weighted_sum = torch.matmul(einops.rearrange((h_m_a+q_m_a), 'b a m h -> b a h m'), score)
-# weighted_sum = einops.rearrange(weighted_sum, 'b a d 1 -> b a d')
-# linear2 = nn.Linear(64, 64)
-# print(weighted_sum.shape)
-# h_a_traj = linear2(weighted_sum + q_a)
-# print(h_a_traj.shape) 
-# class AROccFlowNet(nn.Module):
-
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-config = load_config("configs/AROccFlowNetS.py")
-print(config)
+if __name__ == '__main__':
+    config = load_config("configs/AROccFlowNetS.py")
+    model = AROccFlowNet(config.models.aroccflownet)
+    input_dic = SampleModelInput().generate_sample_input()
+    print(model(input_dic))

@@ -7,7 +7,7 @@ class SampleModelInput():
     num_states: int
 
     def __init__(self):
-        self.batch_size = 8
+        self.batch_size = 4
         self.num_agents = 20
         self.num_timesteps = 10
         self.num_states = 10
@@ -30,10 +30,14 @@ class SampleModelInput():
         result_dic = {}
         agent_states, agent_types = self.generate_agent_states_and_types()
         occupancy_map, flow_map = self.generate_occupancy_flow_maps()
-        result_dic['agent_states'] = agent_states
-        result_dic['agent_types'] = agent_types
-        result_dic['occupancy_map'] = occupancy_map
-        result_dic['flow_map'] = flow_map
+        result_dic['cur/his/agent_states'] = agent_states
+        result_dic['cur/his/agent_types'] = agent_types
+        result_dic['cur/his/occupancy_map'] = occupancy_map
+        result_dic['cur/his/flow_map'] = flow_map
+        result_dic['nxt/his/occupancy_map'] = occupancy_map
+        result_dic['nxt/his/flow_map'] = flow_map
+        result_dic['prv/his/occupancy_map'] = occupancy_map
+        result_dic['prv/his/flow_map'] = flow_map
         # print the setting information
         print('==================== Sample Input Information ====================')
         print('Batch Size:', self.batch_size)

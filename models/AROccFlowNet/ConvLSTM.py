@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.config import load_config
-
+from utils.SampleModelInput import SampleModelInput
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, bias=True):
         super(ConvLSTMCell, self).__init__()
@@ -69,7 +69,8 @@ class ConvLSTM(nn.Module):
             for i in range(self.num_layers)
         ])
 
-    def forward(self, input_tensor, hidden_state=None):
+    def forward(self, occupancy_map, flow_map, hidden_state=None):
+        input_tensor = torch.cat([occupancy_map, flow_map], dim=-3)
         if not self.batch_first:
             input_tensor = input_tensor.permute(1, 0, 2, 3, 4)  # Convert (T, B, C, H, W) -> (B, T, C, H, W)
 
@@ -117,9 +118,11 @@ class ConvLSTM(nn.Module):
 
 if __name__ == '__main__':
     config = load_config("configs/AROccFlowNetS.py")
-    input_data = torch.randn(2, 20, 3, 256, 256)
+    input_dic = SampleModelInput().generate_sample_input()
+    occupancy_map = input_dic['occupancy_map']
+    flow_map = input_dic['flow_map']
+    input_data = torch.cat([occupancy_map, flow_map], dim=2)
     conv_lstm = ConvLSTM(config.models.convlstm)
-
     output, last_state = conv_lstm(input_data)
 
     print("ConvLSTM Output Shape:", output[-1].shape)  # Expected: [2, 5, 128, 256, 256]
