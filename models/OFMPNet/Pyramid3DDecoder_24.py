@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.ConvLSTM import ConvLSTM
+from models.OFMPNet.ConvLSTM import ConvLSTM
 from torchinfo import summary
 
 class Pyramid3DDecoder(nn.Module):

@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.MultiHeadAttention import MultiHeadAttention
+from models.OFMPNet.MultiHeadAttention import MultiHeadAttention
 
 
 

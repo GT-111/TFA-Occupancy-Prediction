@@ -1,4 +1,5 @@
 from utils.file_utils import get_config, get_last_checkpoint
+from utils.config import load_config
 from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
@@ -15,6 +16,7 @@ import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
 import warnings
+import argparse
 warnings.filterwarnings("ignore")
 ogm_weight  = 500
 occ_weight  = 1000
@@ -253,7 +255,13 @@ def model_training(gpu_id, world_size, config):
 
 
 if __name__ == "__main__":
-    config = get_config('configs/config_12.yaml')
+    # ============= Parse Argument =============
+    parser = argparse.ArgumentParser(description="options for dreamer project")
+    parser.add_argument("--config", type=str, default="configs/AROccFlowNetS.py", help="config file")
+    args = parser.parse_args()
+    # ============= Load Configuration =============
+    config = load_config(args.config)
+    # config = get_config('configs/config_12.yaml')
     checkpoints_path = config.paths.checkpoints
     os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
     # os.environ["NCCL_P2P_DISABLE"] = "1"

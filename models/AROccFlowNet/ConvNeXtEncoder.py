@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from timm.models.convnext import convnext_small  # Use ConvNeXt Base
-
+from utils.config import load_config
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""
     def __init__(self, pretrained=True):
@@ -73,8 +73,7 @@ class UNetDecoder(nn.Module):
 
 class ConvNeXtUNet(nn.Module):
     """ConvNeXt-based multi-scale feature extraction with U-Net decoding."""
-    def __init__(self, img_size=(256, 256), in_chans=3, out_channels=32, 
-                 embed_dims=[96, 192, 384, 768], temporal_depth=3):
+    def __init__(self, config):
         """
         Args:
             img_size: (H, W) input image size
@@ -85,18 +84,19 @@ class ConvNeXtUNet(nn.Module):
         """
         super(ConvNeXtUNet, self).__init__()
 
-        self.temporal_depth = temporal_depth
-        self.img_size = img_size
-
+        self.temporal_depth = config.temporal_depth
+        self.img_size = config.img_size
+        self.embed_dims = config.embed_dims
+        self.out_channels = config.out_channels
         # Use ConvNeXt Base as the feature extractor
         self.convnext = ConvNeXtFeatureExtractor()
 
         # U-Net decoder for multi-scale feature fusion
-        self.unet_decoder = UNetDecoder(embed_dims, out_channels)
+        self.unet_decoder = UNetDecoder(self.embed_dims, self.out_channels)
 
         # Temporal modeling with Conv3D
         self.temporal_conv = nn.Conv3d(
-            in_channels=out_channels, out_channels=out_channels, 
+            in_channels=self.out_channels, out_channels=self.out_channels, 
             kernel_size=(self.temporal_depth, 1, 1), padding=(0, 0, 0), 
             stride=(1, 1, 1)
         )
@@ -132,11 +132,12 @@ class ConvNeXtUNet(nn.Module):
         return x  # Final shape: (B, D, H, W)
 
 if __name__ == '__main__':
+    config = load_config("configs/AROccFlowNetS.py")
     # Initialize model
-    model = ConvNeXtUNet(img_size=(256, 256), in_chans=3, out_channels=32, temporal_depth=3)
+    model = ConvNeXtUNet(config.models.convnextunet)
 
     # Create a dummy input (B=4, T=3, C=3, H=64, W=80)
-    dummy_input = torch.randn(4, 3, 3, 256, 256)
+    dummy_input = torch.randn(4, 20, 3, 256, 256)
 
     # Forward pass
     output = model(dummy_input)

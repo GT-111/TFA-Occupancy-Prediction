@@ -24,7 +24,15 @@ num_his_points = 10
 prediction_length = 400
 num_waypoints = 20
 # ============= Model Parameters =================
+input_dim = 3 # occupancy, flow_x, flow_y
+hidden_dim = 128
+img_size = (256, 256)
 
+num_states = 10# TODO: Define the number of states
+num_heads = 4
+dropout_prob=0.1
+
+num_motion_mode=6 # number of future motion modes
 
 # ============= Train Parameters =================
 num_machines = 1
@@ -38,94 +46,74 @@ weight_path = None  # None is the last ckpt you have trained
 # ============= Config ===================
 config = dict(
     project_dir=project_dir,
-    launch=dict(
-        gpu_ids=gpu_ids,
-        num_machines=num_machines,
-        distributed_type=distributed_type,
-        deepspeed_config=deepspeed_config,
-    ),
+    # launch=dict(
+    #     gpu_ids=gpu_ids,
+    #     num_machines=num_machines,
+    #     distributed_type=distributed_type,
+    #     deepspeed_config=deepspeed_config,
+    # ),
     dataloaders=dict(
         train=dict(
-            data_or_config=train_data,
-            batch_size_per_gpu=batch_size_frame_per_gpu,
-            num_workers=2,
-            transform=dict(
-                type='DriveDreamerTransform',
-                dst_size=img_width,
-                mode='long',
-                pos_name=pos_name,
-                max_objs=max_objs_num,
-                random_choice=True,
-                default_prompt='a realistic driving scene.',
-                prompt_name='sd',
-                dd_name='image_hdmap',
-                is_train=True,
-            ),
-            sampler=dict(
-                type='NuscVideoSampler',
-                cam_num=num_cams,
-                frame_num=num_frames,
-                hz_factor=hz_factor,
-                video_split_rate=video_split_rate,
-                mv_video=mv_video,
-                view=view,
-            ),
+            # data_or_config=train_data,
+            # batch_size_per_gpu=batch_size_frame_per_gpu,
+            # num_workers=2,
+            # transform=dict(
+            #     type='DriveDreamerTransform',
+            #     dst_size=img_width,
+            #     mode='long',
+            #     pos_name=pos_name,
+            #     max_objs=max_objs_num,
+            #     random_choice=True,
+            #     default_prompt='a realistic driving scene.',
+            #     prompt_name='sd',
+            #     dd_name='image_hdmap',
+            #     is_train=True,
+            # ),
+            # sampler=dict(
+            #     type='NuscVideoSampler',
+            #     cam_num=num_cams,
+            #     frame_num=num_frames,
+            #     hz_factor=hz_factor,
+            #     video_split_rate=video_split_rate,
+            #     mv_video=mv_video,
+            #     view=view,
+            # ),
         ),
         test=dict(
-            data_or_config=test_data,
-            batch_size_per_gpu=num_frames * num_cams,
-            num_workers=0,
-            transform=dict(
-                type='DriveDreamerTransform',
-                dst_size=img_width,
-                mode='long',
-                pos_name=pos_name,
-                max_objs=max_objs_num,
-                random_choice=False,
-                prompt_name='sd',
-                default_prompt='a realistic driving scene.',
-                dd_name='image_hdmap',
-                is_train=False,
-            ),
-            sampler=dict(
-                type='NuscVideoSampler',
-                cam_num=num_cams,
-                frame_num=num_frames,
-                hz_factor=hz_factor,
-                video_split_rate=1,
-                mv_video=mv_video,
-                view=view,
-            ),
+
         ),
     ),
     models=dict(
-        drivedreamer=dict(
-            unet_type='UNet2DConditionModel',
-            noise_scheduler_type='DDPMScheduler',
-            tune_all_unet_params=tune_all_unet_params,
-            unet_from_2d_to_3d=True,
-            num_frames=num_frames,
-            num_cams=num_cams,
-            position_net_cfg=dict(
-                type='PositionNet',
-                in_dim=768,
-                mid_dim=512,
-                box_dim=16 if 'corner' in pos_name else 4,
-                feature_type='text_image' if 'image' in pos_name else 'text_only',
-            ),
-            grounding_downsampler_cfg=dict(
-                type='GroundingDownSampler',
-                in_dim=3,
-                mid_dim=4,
-                out_dim=hdmap_dim,
-            ),
-            add_in_channels=hdmap_dim,
+        convlstm=dict(
+            input_dim=input_dim, 
+            hidden_dim=[64, hidden_dim],
+            kernel_size=(3, 3), 
+            num_layers=2,
+            batch_first=True, 
+            bias=True, 
+            return_all_layers=False
         ),
-        pretrained='runwayml/stable-diffusion-v1-5',
-        pipeline_name='StableDiffusionControlPipeline',
-        checkpoint=ckpt_2d,
-        with_ema=with_ema,
-        weight_path=weight_path,
+        convnextunet=dict(
+            img_size=img_size,
+            in_chans=input_dim,
+            out_channels=hidden_dim,
+            embed_dims=[96, 192, 384, 768],
+            temporal_depth=num_waypoints,
+        ),
+        motionpredictor=dict(
+            num_states=num_states,
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout_prob=dropout_prob,
+            num_layers=1,
+            num_motion_mode=num_motion_mode,
+            num_time_steps=num_waypoints,
+        ),
+        # pretrained='runwayml/stable-diffusion-v1-5',
+        # pipeline_name='StableDiffusionControlPipeline',
+        # checkpoint=ckpt_2d,
+        # with_ema=with_ema,
+        # weight_path=weight_path,
     ),
     optimizers=dict(
         type='NAdam',
@@ -139,20 +127,12 @@ config = dict(
     ),
     train=dict(
         max_epochs=max_epochs,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        mixed_precision='fp16',
         checkpoint_interval=1,
         checkpoint_total_limit=10,
         log_with='tensorboard',
         log_interval=100,
-        activation_checkpointing=activation_checkpointing,
-        resume=resume,
-        with_ema=with_ema,
-        # max_grad_norm=1.0,
     ),
     test=dict(
-        mixed_precision='fp16',
-        save_dir=os.path.join(project_dir, 'vis'),
-        guidance_scale=guidance_scale,
+
     ),
 )

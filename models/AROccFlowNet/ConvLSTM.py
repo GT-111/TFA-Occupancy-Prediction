@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from utils.config import load_config
 
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, bias=True):
@@ -46,22 +46,18 @@ class ConvLSTMCell(nn.Module):
 
 
 class ConvLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers,
-                 batch_first=True, bias=True, return_all_layers=False):
+    def __init__(self, config):
         super(ConvLSTM, self).__init__()
+        self.num_layers = config.num_layers
 
-        self._check_kernel_size_consistency(kernel_size)
+        self.hidden_dim = config.hidden_dim
+        self.kernel_size = self._extend_for_multilayer(config.kernel_size, self.num_layers)
+        self.hidden_dim = self._extend_for_multilayer(config.hidden_dim, self.num_layers)
+        self.input_dim = config.input_dim
 
-        kernel_size = self._extend_for_multilayer(kernel_size, num_layers)
-        hidden_dim = self._extend_for_multilayer(hidden_dim, num_layers)
-
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.kernel_size = kernel_size
-        self.num_layers = num_layers
-        self.batch_first = batch_first
-        self.bias = bias
-        self.return_all_layers = return_all_layers
+        self.batch_first = config.batch_first
+        self.bias = config.bias
+        self.return_all_layers = config.return_all_layers
 
         self.cell_list = nn.ModuleList([
             ConvLSTMCell(
@@ -111,11 +107,6 @@ class ConvLSTM(nn.Module):
     def _init_hidden(self, batch_size, image_size):
         return [self.cell_list[i].init_hidden(batch_size, image_size) for i in range(self.num_layers)]
 
-    @staticmethod
-    def _check_kernel_size_consistency(kernel_size):
-        if not (isinstance(kernel_size, tuple) or
-                (isinstance(kernel_size, list) and all([isinstance(elem, tuple) for elem in kernel_size]))):
-            raise ValueError('`kernel_size` must be tuple or list of tuples')
 
     @staticmethod
     def _extend_for_multilayer(param, num_layers):
@@ -125,10 +116,9 @@ class ConvLSTM(nn.Module):
 
 
 if __name__ == '__main__':
-
-    input_data = torch.randn(2, 5, 4, 256, 256)
-
-    conv_lstm = ConvLSTM(input_dim=4, hidden_dim=[64, 128], kernel_size=(3, 3), num_layers=2)
+    config = load_config("configs/AROccFlowNetS.py")
+    input_data = torch.randn(2, 20, 3, 256, 256)
+    conv_lstm = ConvLSTM(config.models.convlstm)
 
     output, last_state = conv_lstm(input_data)
 

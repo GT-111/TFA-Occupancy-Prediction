@@ -1,2 +1,2 @@
-from .SwinTransformerEncoder import *
+from .ConvNeXtEncoder import *
 from .EfficientMotionPredictor import *
