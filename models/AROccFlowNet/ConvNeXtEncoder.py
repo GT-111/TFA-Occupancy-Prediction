@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from timm.models.convnext import convnext_small  # Use ConvNeXt Base
+from timm.models.convnext import convnext_small, convnext_tiny  # Use ConvNeXt Base
 from utils.config import load_config
 from utils.SampleModelInput import SampleModelInput
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""
     def __init__(self, pretrained=True):
         super().__init__()
-        self.backbone = convnext_small(pretrained=pretrained, features_only=True)
+        self.backbone = convnext_tiny(pretrained=pretrained, features_only=True)
 
     def forward(self, x):
         """
@@ -96,12 +96,12 @@ class ConvNeXtUNet(nn.Module):
         self.unet_decoder = UNetDecoder(self.embed_dims, self.out_channels)
 
         # Temporal modeling with Conv3D
-        self.temporal_conv = nn.Conv3d(
-            in_channels=self.out_channels, out_channels=self.out_channels, 
-            kernel_size=(self.temporal_depth, 1, 1), padding=(0, 0, 0), 
-            stride=(1, 1, 1)
-        )
+        self.temporal_conv = nn.Sequential(
+            nn.Conv3d(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=(self.temporal_depth, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1)),
+            nn.ReLU(inplace=True)
+            )
 
+        self.up_conv = nn.ConvTranspose2d(self.embed_dims[0], self.embed_dims[0], kernel_size=2, stride=2)
     def forward(self, occupancy_map, flow_map):
         fearture_map = torch.cat([occupancy_map, flow_map], dim=-3)
         B, T, C, H, W = fearture_map.shape
@@ -129,9 +129,10 @@ class ConvNeXtUNet(nn.Module):
         
         fused_features = rearrange(fused_features, "(b t) c h w -> b c t h w", b=B, t=T)  
         
-        out = self.temporal_conv(fused_features).squeeze(2)
+        fused_features = self.temporal_conv(fused_features).squeeze(2)
+
         
-        return out  # Final shape: (B, D, H, W)
+        return fused_features  # Final shape: (B, H*W, D)
 
 if __name__ == '__main__':
     config = load_config("configs/AROccFlowNetS.py")

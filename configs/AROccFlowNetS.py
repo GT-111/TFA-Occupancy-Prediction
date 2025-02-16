@@ -25,7 +25,7 @@ prediction_length = 400
 num_waypoints = 20
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y
-hidden_dim = 128
+hidden_dim = 64
 img_size = (256, 256)
 
 num_states = 10# TODO: Define the number of states
@@ -85,6 +85,7 @@ config = dict(
     ),
     models=dict(
         aroccflownet=dict(
+            img_size=img_size,
             num_time_steps=num_waypoints,
             hidden_dim=hidden_dim,
             nhead=num_heads,
