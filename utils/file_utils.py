@@ -14,7 +14,18 @@ def get_json_files(raw_data_path = './raw_data'):
 
     return files
 
-def get_npy_files(processed_data_path = './processed_data'):
+def get_parquet_files(raw_data_path = './processed_data'):
+
+    files = []
+    for root, _, file in os.walk(raw_data_path):
+        for f in file:
+            if f.endswith('.parquet'):
+                files.append(os.path.join(root, f))
+
+    return files
+
+
+def get_npy_files(processed_data_path = './generated_data'):
     files = []
     for root, _, file in os.walk(processed_data_path):
         for f in file:

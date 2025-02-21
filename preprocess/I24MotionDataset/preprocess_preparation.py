@@ -1,12 +1,12 @@
-import attr
 import ijson
-from utils.file_utils import get_json_files, get_config
+import os
 import numpy as np
 import pandas as pd
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from utils.config import load_config
+from utils.file_utils import get_json_files
 
 
 
@@ -86,10 +86,10 @@ def read_meta_data(meta_data_path):
 
     return dataset_metadata
 
-def process_raw_json2csv(config):
+def process_raw_json2csv(dataset_config):
     # ============= Load Paths =================
-    paths = config.paths
-    keys_to_use = config.keys_to_use
+    paths = dataset_config.paths
+    keys_to_use = dataset_config.keys_to_use
     raw_data_path = paths.raw_data_path
     processed_data_path = paths.processed_data_path
     auxilary_data_path = paths.auxilary_data_path
@@ -99,7 +99,7 @@ def process_raw_json2csv(config):
     dataset_metadata = read_meta_data(meta_data_path)
 
     # ============= Load Attributes =================
-    attributes = config.attributes
+    attributes = dataset_config.attributes
     sample_frequency = attributes.sample_frequency
     # ============= Process Files =================
     raw_data_files = get_json_files(raw_data_path)

@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from dataset.I24Dataset import I24Dataset
+from dataset.I24MotionDataset import I24Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
