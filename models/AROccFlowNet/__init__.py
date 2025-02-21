@@ -1,2 +1,2 @@
 from .ConvNeXtEncoder import *
-from .EfficientMotionPredictor import *
+from .efficient_motion_predictor import *

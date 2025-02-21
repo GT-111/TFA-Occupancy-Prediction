@@ -3,6 +3,7 @@ import easydict as edict
 import json
 import yaml
 import re
+
 def get_json_files(raw_data_path = './raw_data'):
 
     files = []

@@ -1,7 +1,8 @@
+from utils.config import load_config
 import os
-# ============= SEED ===================
+# ============= Seed ===================
 random_seed = 42
-# ============= PATH ===================
+# ============= Path ===================
 proj_name = 'AROccFlowNetS'
 raw_data = './raw_data/'
 auxiliary_data = './auxiliary_data/'
@@ -10,28 +11,20 @@ processed_data = './processed_data/'
 # logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
 project_dir = os.path.join(exp_dir, proj_name)
-# ============= Data Parameters =================
-dataset = 'I24Motion'
-sample_frequency = 25 # the frequency of the input data
-start_position = 58.5 # the start position of the input data in miles
-end_position = 63.5 # the end position of the input data in miles
-train_ratio = 0.8
-validation_ratio = 0.1
-test_ratio = 0.1
-# ============= TASK =================
-history_length = 20
-num_his_points = 10
-prediction_length = 400
-num_waypoints = 20
+
+# ============= Dataset Parameters=================
+dataset_config = load_config("configs/datasets/I24Motion.py")
+occupancy_flow_map_height = dataset_config.occupancy_flow_map_height
+occupancy_flow_map_width = dataset_config.occupancy_flow_map_width
+num_his_points = dataset_config.num_his_points
+num_waypoints = dataset_config.num_waypoints
+
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y
 hidden_dim = 64
-img_size = (256, 256)
-
 num_states = 10# TODO: Define the number of states
 num_heads = 4
 dropout_prob=0.1
-
 num_motion_mode=6 # number of future motion modes
 
 # ============= Train Parameters =================
@@ -53,6 +46,9 @@ config = dict(
     #     deepspeed_config=deepspeed_config,
     # ),
     dataloaders=dict(
+        train_ratio = 0.8,
+        validation_ratio = 0.1,
+        test_ratio = 0.1,
         train=dict(
             # data_or_config=train_data,
             # batch_size_per_gpu=batch_size_frame_per_gpu,
@@ -85,7 +81,7 @@ config = dict(
     ),
     models=dict(
         aroccflownet=dict(
-            img_size=img_size,
+            img_size=(occupancy_flow_map_height, occupancy_flow_map_width),
             num_time_steps=num_waypoints,
             hidden_dim=hidden_dim,
             nhead=num_heads,
@@ -102,7 +98,7 @@ config = dict(
                 return_all_layers=False
             ),
             convnextunet=dict(
-                img_size=img_size,
+                img_size=(occupancy_flow_map_height, occupancy_flow_map_width),
                 in_chans=input_dim,
                 out_channels=hidden_dim,
                 embed_dims=[96, 192, 384, 768],
