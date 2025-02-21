@@ -15,7 +15,7 @@ def process_file(raw_data_file, keys_to_use, dataset_metadata, sample_frequency,
     df = pd.DataFrame(columns=keys_to_use)
     buffer = []  # Temporary buffer to hold intermediate results
 
-    file_name = os.path.basename(raw_data_file).split('_')[0]
+    file_name = os.path.basename(raw_data_file).split('.')[0]
     print(f'Processing {file_name}...')
     start_time_stamp = dataset_metadata[dataset_metadata['Unique Identifier'] == file_name]['timestamp'].values[0]
     with open(raw_data_file, 'r') as input_file:
