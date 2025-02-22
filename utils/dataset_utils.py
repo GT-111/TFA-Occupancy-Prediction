@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from dataset.I24MotionDataset import I24Dataset
+from dataset.I24MotionDataset import I24MotionDataset
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -127,7 +127,7 @@ def collate_fn(batch_list):
 
 
 def get_dataset(config):
-    dataset = I24Dataset(config)
+    dataset = I24MotionDataset(config)
     return dataset
 
 def get_train_val_test_dataset(dataset, config):

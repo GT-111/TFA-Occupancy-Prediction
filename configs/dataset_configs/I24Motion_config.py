@@ -4,7 +4,7 @@ from sympy import root
 dataset = 'I24Motion'
 
 # ============= Path ===================
-dataset_root_dir = '/home/hg25079/Projects/MotionPrediction/Datasets/I24Motion/'
+dataset_root_dir = '/hdd/HetianGuo/MotionPrediction/Datasets/I24Motion'
 raw_data_path = 'raw_data/'
 auxilary_data_path = 'auxiliary_data/'
 processed_data_path = 'processed_data/'
@@ -27,12 +27,12 @@ num_waypoints = 20
 # ============= Occupancy Flow Map Parameters =================
 occupancy_flow_map_height = 256
 occupancy_flow_map_width = 256
-vehicle_points_per_side_length: 48 # the number of points in the vehicle length direction
-vehicle_points_per_side_width: 16 # the number of points in the vehicle width direction
-spatial_stride: 70
-spatial_window: 280
-temporal_stride: 29
-temporal_window: 116
+vehicle_points_per_side_length = 48 # the number of points in the vehicle length direction
+vehicle_points_per_side_width = 16 # the number of points in the vehicle width direction
+spatial_stride = 70
+spatial_window = 280
+temporal_stride = 29
+temporal_window = 116
 
 # ============= Config ===================
 config = dict(
