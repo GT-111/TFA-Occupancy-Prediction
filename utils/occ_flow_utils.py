@@ -107,7 +107,7 @@ class GridMap():
         )
         # [num_points_to_render]
         gt_values = np.squeeze(np.ones_like(x_img_coord, dtype=np.float32), axis=-1)
-        topdown_shape = [self.grid_size_height, self.grid_size_width, num_time_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
+        topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_time_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
         
         xy_img_coord_t = tuple(xy_img_coord.T) 
         occupancy_map = np.zeros(topdown_shape, dtype=np.float32)
@@ -149,7 +149,7 @@ class GridMap():
         vehicle_points_dx = vehicle_points_dxy[..., 0]
         vehicle_points_dy = vehicle_points_dxy[..., 1]
         
-        topdown_shape = [self.grid_size_height, self.grid_size_width, num_flow_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
+        topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_flow_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
         gt_values_dx = vehicle_points_dx[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
         gt_values_dy = vehicle_points_dy[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
 

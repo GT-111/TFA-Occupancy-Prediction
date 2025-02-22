@@ -4,35 +4,19 @@ import json
 import yaml
 import re
 
-def get_json_files(raw_data_path = './raw_data'):
+def get_files_with_extension(folder_path = '', file_extension = '.parquet'):
 
     files = []
-    for root, _, file in os.walk(raw_data_path):
+    for root, _, file in os.walk(folder_path):
         for f in file:
-            if f.endswith('.json'):
-                files.append(os.path.join(root, f))
-
-    return files
-
-def get_parquet_files(raw_data_path = './processed_data'):
-
-    files = []
-    for root, _, file in os.walk(raw_data_path):
-        for f in file:
-            if f.endswith('.parquet'):
+            print(f)
+            if f.endswith(file_extension):
                 files.append(os.path.join(root, f))
 
     return files
 
 
-def get_npy_files(processed_data_path = './generated_data'):
-    files = []
-    for root, _, file in os.walk(processed_data_path):
-        for f in file:
-            if f.endswith('.npy'):
-                files.append(os.path.join(root, f))
 
-    return files
 
 def get_config (config_file = ''):
     # Load config file

@@ -4,7 +4,7 @@ from sympy import root
 dataset = 'I24Motion'
 
 # ============= Path ===================
-dataset_root_dir = '/hdd/HetianGuo/MotionPrediction/Datasets/I24Motion'
+dataset_root_dir = '/home/hg25079/Projects/MotionPrediction/Datasets/I24Motion'
 raw_data_path = 'raw_data/'
 auxilary_data_path = 'auxiliary_data/'
 processed_data_path = 'processed_data/'
@@ -19,21 +19,21 @@ keys_to_use = ['_id', 'timestamp', 'x_position', 'y_position', 'length', 'width'
             ]
 
 # ============= Task General Parameters =================
-history_length = 20
+history_length = 100
 num_his_points = 10
 prediction_length = 400
 num_waypoints = 20
 
 # ============= Occupancy Flow Map Parameters =================
-occupancy_flow_map_height = 256
-occupancy_flow_map_width = 256
-vehicle_points_per_side_length = 48 # the number of points in the vehicle length direction
-vehicle_points_per_side_width = 16 # the number of points in the vehicle width direction
-spatial_stride = 70
-spatial_window = 280
-temporal_stride = 29
-temporal_window = 116
+occupancy_flow_map_height = 512
+occupancy_flow_map_width = 96
+vehicle_points_per_side_length = 36 # the number of points in the vehicle length direction
+vehicle_points_per_side_width = 12 # the number of points in the vehicle width direction
 
+spatial_window = 1400 # the size of the spatial window in feet
+spatial_stride = spatial_window // 4
+temporal_window = history_length + prediction_length # the size of the temporal window in seconds
+temporal_stride = temporal_window // 4
 # ============= Config ===================
 config = dict(
     keys_to_use = keys_to_use,
@@ -47,8 +47,10 @@ config = dict(
         processed_data_path=os.path.join(dataset_root_dir, processed_data_path),
         generated_data_path=os.path.join(dataset_root_dir, generated_data_path),
     ),
-    attributes=dict(
+    data_attributes=dict(
         sample_frequency=sample_frequency,
+        start_position=start_position,
+        end_position=end_position,
     ),
     occupancy_flow_map=dict(
         spatial_stride=spatial_stride,

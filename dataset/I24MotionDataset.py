@@ -1,10 +1,10 @@
 import numpy as np
 from torch.utils.data import Dataset
-from utils.file_utils import get_npy_files
+from utils.file_utils import get_files_with_extension
 class I24MotionDataset(Dataset):
     def __init__(self, config):
         self.config = config
-        self.data_files = get_npy_files(config.paths.processed_data)[:config.dataloader_config.total_samples]
+        self.data_files = get_files_with_extension(config.paths.processed_data, '.npy')[:config.dataloader_config.total_samples]
         
     def __len__(self):
         return len(self.data_files)

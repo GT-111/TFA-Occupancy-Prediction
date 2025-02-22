@@ -6,7 +6,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.config import load_config
-from utils.file_utils import get_json_files
+from utils.file_utils import get_files_with_extension
 
 
 
@@ -102,7 +102,7 @@ def process_raw_json2csv(dataset_config):
     attributes = dataset_config.attributes
     sample_frequency = attributes.sample_frequency
     # ============= Process Files =================
-    raw_data_files = get_json_files(raw_data_path)
+    raw_data_files = get_files_with_extension(raw_data_path, '.json')
     # print(raw_data_files)
     for raw_data_file_idx, raw_data_file in enumerate(raw_data_files):
 

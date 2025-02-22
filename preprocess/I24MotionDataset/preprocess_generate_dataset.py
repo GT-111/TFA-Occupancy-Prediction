@@ -4,9 +4,11 @@ import concurrent.futures
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+import warnings
+warnings.filterwarnings("ignore")
 from utils.occ_flow_utils import GridMap
 from utils.config import load_config
-from utils.file_utils import get_parquet_files
+from utils.file_utils import get_files_with_extension
 
 if __name__ == '__main__':
     dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
@@ -39,10 +41,11 @@ class I24MotionDatasetFile():
         # ============= Prepare the Occpancy Flow Map Attributes =================
         self.spatial_stride = self.occupancy_flow_map_config.spatial_stride
         self.temporal_stride = self.occupancy_flow_map_config.temporal_stride
-        self.spatial_window = self.occupancy_flow_map_config.preprocessing.spatial_window
-        self.temporal_window = self.occupancy_flow_map_config.preprocessing.temporal_window
+        self.spatial_window = self.occupancy_flow_map_config.spatial_window
+        self.temporal_window = self.occupancy_flow_map_config.temporal_window
         self.spatial_length = int(np.floor((self.x_max - self.x_min - self.spatial_window) / self.spatial_stride))
         self.temporal_length = int(np.floor((self.time_max - self.time_min - self.temporal_window) / self.temporal_stride))
+        self.max_idx = self.spatial_length * self.temporal_length
         # ============= Prepare the Task Attributes =================
         self.history_length = self.task_config.history_length
         self.prediction_length = self.task_config.prediction_length
@@ -89,9 +92,31 @@ class I24MotionDatasetFile():
 
         return coordinates
     
-    def get_feature_dic(self, scene_data, scene_idx):
+    def get_feature_dic(self, scene_data, scene_idx, threshold_to_keep_percent=0.3):
         spatial_start, spatial_end, temporal_start, temporal_end = self.idx2range(scene_idx)
-        scene_data = scene_data[(scene_data['x_position'].between(spatial_start, spatial_end))]
+
+        # Compute timestamp indices relative to temporal_start for the entire DataFrame
+        scene_data['timestamp_idx'] = (scene_data['timestamp'] - temporal_start).astype(np.int32)
+
+        # Aggregate counts of valid history and prediction timestamps per agent (_id)
+        group_counts = scene_data.groupby('_id')['timestamp_idx'].agg(
+            count_his=lambda x: (x < self.history_length).sum(),
+            count_pred=lambda x: ((x >= self.history_length) & (x < self.history_length + self.prediction_length)).sum()
+        )
+
+        # Calculate the valid percentage for history and prediction for each agent
+        group_counts['valid_his_percent'] = group_counts['count_his'] / self.history_length
+        group_counts['valid_pred_percent'] = group_counts['count_pred'] / self.prediction_length
+
+        # Identify agents that meet the threshold criteria for both history and prediction
+        valid_ids = group_counts[
+            (group_counts['valid_his_percent'] >= threshold_to_keep_percent) & 
+            (group_counts['valid_pred_percent'] >= threshold_to_keep_percent)
+        ].index
+
+        # Filter the original scene_data to keep only rows with valid agent IDs
+        scene_data = scene_data[scene_data['_id'].isin(valid_ids)]
+
         vehicles_num = scene_data['_id'].nunique()
         vehicles_id = scene_data['_id'].unique()
         vehicles_id_dic = {_id: i - 1 for i, _id in enumerate(vehicles_id)}
@@ -108,6 +133,7 @@ class I24MotionDatasetFile():
         vehicles_y_velocity = np.zeros(shape, dtype=np.float32)
         vehicles_yaw_angle = np.zeros(shape, dtype=np.float32)
         for _id, group in scene_data.groupby('_id'):
+            
             idx = vehicles_id_dic[_id]
             vehicle_length_cur = group['length'].iloc[0]
             vehicle_width_cur = group['width'].iloc[0]
@@ -231,7 +257,7 @@ class I24MotionDatasetFile():
 
         return output_dic
     
-    def process_idx(self, idx, threshold_to_keep_percent=0.4, threshold_to_keep_num=5):
+    def process_idx(self, idx, threshold_to_keep_num=10):
         spatial_idx = idx % self.spatial_length
         if spatial_idx == 0:
             prv_idx = idx
@@ -244,12 +270,7 @@ class I24MotionDatasetFile():
 
         # Get feature dictionaries and add occupancy and flow maps
         prv_feature_dic, cur_feature_dic, nxt_feature_dic = self.get_feature_dics(prv_idx, idx, nxt_idx)
-        if cur_feature_dic['num_vehicles'] <= threshold_to_keep_num:
-            return
-        points_per_vehicle_history = (np.sum(cur_feature_dic['timestamp'][:, :self.num_his_points]!=0) / cur_feature_dic['num_vehicles'])/self.num_his_points
-        points_per_vehicle_future = (np.sum(cur_feature_dic['timestamp'][:, self.num_his_points: self.num_his_points + self.num_waypoints]!=0) / cur_feature_dic['num_vehicles'])/self.num_waypoints
-        # if the number of valid points per vehicle is less than threshold_to_keep, skip the scene
-        if points_per_vehicle_history < threshold_to_keep_percent or points_per_vehicle_future < threshold_to_keep_percent:
+        if cur_feature_dic['num_vehicles'] <= threshold_to_keep_num or prv_feature_dic['num_vehicles'] <= threshold_to_keep_num or nxt_feature_dic['num_vehicles'] <= threshold_to_keep_num:
             return
 
         output_dic = {
@@ -257,7 +278,7 @@ class I24MotionDatasetFile():
             'cur': self.get_output_dic(cur_feature_dic),
             'nxt': self.get_output_dic(nxt_feature_dic),
         }
-        
+        print(f'Saving scene {idx}...')
         np.save(f'{self.generated_data_path}/scene_{idx}', output_dic)
 
 class I24MotionDatasetPreprocessor():
@@ -272,12 +293,17 @@ class I24MotionDatasetPreprocessor():
 
     def process_file(self, data_file_path):
         data_file = I24MotionDatasetFile(data_file_path, dataset_config)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-            # Wrap tqdm around the executor to show progress
-            list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=self.num_scenes_to_process_per_file))
+        num_scenes_to_process = min(data_file.max_idx, self.num_scenes_to_process_per_file)
+
+        for idx in range(num_scenes_to_process):
+            data_file.process_idx(idx)
+            
+        # with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+        #     # Wrap tqdm around the executor to show progress
+        #     list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=self.num_scenes_to_process_per_file))
 
     def process_files(self,):
-        data_files = get_parquet_files(self.processed_data_path)
+        data_files = get_files_with_extension(self.processed_data_path, '.parquet')
         for data_file in data_files:
             self.process_file(data_file)
 
@@ -286,7 +312,11 @@ class I24MotionDatasetPreprocessor():
 
 
 
-
+if __name__ == '__main__':
+    dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
+    # process_raw_json2csv(dataset_config)
+    preprocessor = I24MotionDatasetPreprocessor(dataset_config)
+    preprocessor.process_files()
 
 
 
