@@ -3,7 +3,7 @@ from utils.dataset_utils import get_dataloader_ddp, get_road_map
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
 from tqdm import tqdm
-from  utils.training_utils import parse_data, parse_outputs
+from  utils.dataset_utils.I24Motion_utils.training_utils import parse_data, parse_outputs
 from losses.occupancy_flow_loss import OGMFlow_loss
 import torch
 import os

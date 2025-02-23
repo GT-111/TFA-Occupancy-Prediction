@@ -7,7 +7,7 @@ from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.convnext_encoder import ConvNeXtUNet
 from models.AROccFlowNet.conv_lstm import ConvLSTM
 from models.AROccFlowNet.positional_encoding import positional_encoding
-from utils.SampleModelInput import SampleModelInput
+from utils.dataset_utils.I24Motion_utils import SampleModelInput
 import torch.utils.checkpoint as checkpoint
 class AROccFlowNet(nn.Module):
 
@@ -32,7 +32,7 @@ class AROccFlowNet(nn.Module):
         # self.upsample = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
         self.flow_decoder = nn.Linear(in_features=self.hidden_dim, out_features=2)
         self.occupancy_decoder = nn.Linear(in_features=self.hidden_dim, out_features=1)
-        
+
     def forward(self, input_data_dic):
         cur_agent_states = input_data_dic['cur/his/agent_states']
         cur_agent_types = input_data_dic['cur/his/agent_types']
@@ -43,7 +43,7 @@ class AROccFlowNet(nn.Module):
         cur_joint_feature = self.multi_scale_feature_map_encoder(cur_occupancy_map, cur_flow_map)
         
         batch_size, num_agents, num_motion_mode, num_time_steps, _ = cur_predicted_trajs.size()
-        cur_predicted_trajs_with_pe = cur_predicted_trajs + positional_encoding(T=self.num_time_steps, D=2)
+        cur_predicted_trajs_with_pe = cur_predicted_trajs + positional_encoding(T=self.num_time_steps, D=2).to(cur_predicted_trajs.device)
         cur_marginal_feature = einops.reduce(
             self.trajs_embedding(cur_predicted_trajs_with_pe), 'b a m t h -> b a m h', 'max'
         )
@@ -58,24 +58,26 @@ class AROccFlowNet(nn.Module):
         for time_step in range(self.num_time_steps):
             cur_fused_feature_projected = self.projection_list[time_step].forward(cur_fused_feature)
             batch_size,  hidden_dim, feature_height, feature_width = prv_occupancy_feature.size()
-            prv_occupancy_feature = prv_occupancy_feature.contiguous().view(batch_size, feature_height*feature_width, hidden_dim)
+            prv_occupancy_feature = einops.rearrange(prv_occupancy_feature, 'b d h w -> b (h w) d', h=feature_height, w=feature_width, d=hidden_dim)
             # TODO: Add the adjacent scene joint_feature
-            cur_occpancy_feature = checkpoint.checkpoint(self.transformer_decoder, prv_occupancy_feature, cur_fused_feature_projected)
+            cur_occpancy_feature = self.transformer_decoder(prv_occupancy_feature, cur_fused_feature_projected)
             cur_occpancy_feature = cur_occpancy_feature.view(batch_size, feature_height, feature_width, -1) 
-            prv_occupancy_feature = cur_occpancy_feature.detach()
+            cur_occpancy_feature = einops.rearrange(cur_occpancy_feature, 'b h w d -> b d h w', h=feature_height, w=feature_width, d=hidden_dim)
+            prv_occupancy_feature = cur_occpancy_feature.clone()
             cur_occpancy_feature = F.interpolate(cur_occpancy_feature, scale_factor=4, mode='bilinear', align_corners=False)
-            cur_occpancy_feature = cur_occpancy_feature.view(batch_size, self.img_size[0], self.img_size[1], -1)
-            cur_flow = self.flow_decoder(cur_occpancy_feature).detach()
-            cur_occupancy = self.occupancy_decoder(cur_occpancy_feature).detach()
+            cur_occpancy_feature = einops.rearrange(cur_occpancy_feature, 'b d h w -> b h w d')
+            
 
-            flow_list.append(cur_flow)  # Reduce memory usage
-            occupancy_list.append(cur_occupancy)
-            torch.cuda.empty_cache()
+            flow_list.append(self.flow_decoder(cur_occpancy_feature))  # Reduce memory usage
+            occupancy_list.append(self.occupancy_decoder(cur_occpancy_feature))
 
-        return flow_list, occupancy_list
+
+        return flow_list, occupancy_list, cur_predicted_trajs, cur_predicted_traj_scores
 
 if __name__ == '__main__':
-    config = load_config("configs/AROccFlowNetS.py")
-    model = AROccFlowNet(config.models.aroccflownet)
-    input_dic = SampleModelInput().generate_sample_input()
+    device  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model_config = load_config("configs/model_configs/AROccFlowNetS.py")
+    dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
+    model = AROccFlowNet(model_config.models.aroccflownet).to(device)
+    input_dic = SampleModelInput(dataset_config).generate_sample_input(device)
     print(model(input_dic))

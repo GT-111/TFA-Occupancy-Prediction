@@ -1,17 +1,15 @@
 import torch
 
 class SampleModelInput():
-    batch_size: int
-    num_agents: int
-    num_timesteps: int
-    num_states: int
 
-    def __init__(self):
+    def __init__(self, dataset_config):
         self.batch_size = 4
         self.num_agents = 20
         self.num_timesteps = 10
         self.num_states = 10
-        self.img_size = (256, 256)
+        self.occupancy_flow_map_config = dataset_config.occupancy_flow_map
+        self.occupancy_flow_map_height = self.occupancy_flow_map_config.occupancy_flow_map_height
+        self.occupancy_flow_map_width = self.occupancy_flow_map_config.occupancy_flow_map_width
         self.num_agent_type = 6
         # vector_features_list = ['length', 'width', 'class', 'direction']
         # node_features_list = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']
@@ -21,30 +19,32 @@ class SampleModelInput():
         return agent_states, agent_types
     
     def generate_occupancy_flow_maps(self):
-        occupancy_map = torch.rand(self.batch_size, self.num_timesteps, 1, self.img_size[0], self.img_size[1])
-        flow_map = torch.rand(self.batch_size, self.num_timesteps, 2, self.img_size[0], self.img_size[1])
+        # occupancy_map: Occupancy map input (B, H, W, T, C)
+        # flow_map: Flow map input (B, H, W, T, C)
+        occupancy_map = torch.rand(self.batch_size, self.occupancy_flow_map_height, self.occupancy_flow_map_width, self.num_timesteps, 1)
+        flow_map = torch.rand(self.batch_size,self.occupancy_flow_map_height, self.occupancy_flow_map_width, self.num_timesteps, 2)
 
         return occupancy_map, flow_map
 
-    def generate_sample_input(self):
+    def generate_sample_input(self, device):
         result_dic = {}
         agent_states, agent_types = self.generate_agent_states_and_types()
         occupancy_map, flow_map = self.generate_occupancy_flow_maps()
-        result_dic['cur/his/agent_states'] = agent_states
-        result_dic['cur/his/agent_types'] = agent_types
-        result_dic['cur/his/occupancy_map'] = occupancy_map
-        result_dic['cur/his/flow_map'] = flow_map
-        result_dic['nxt/his/occupancy_map'] = occupancy_map
-        result_dic['nxt/his/flow_map'] = flow_map
-        result_dic['prv/his/occupancy_map'] = occupancy_map
-        result_dic['prv/his/flow_map'] = flow_map
+        result_dic['cur/his/agent_states'] = agent_states.to(device)
+        result_dic['cur/his/agent_types'] = agent_types.to(device)
+        result_dic['cur/his/occupancy_map'] = occupancy_map.to(device)
+        result_dic['cur/his/flow_map'] = flow_map.to(device)
+        result_dic['nxt/his/occupancy_map'] = occupancy_map.to(device)
+        result_dic['nxt/his/flow_map'] = flow_map.to(device)
+        result_dic['prv/his/occupancy_map'] = occupancy_map.to(device)
+        result_dic['prv/his/flow_map'] = flow_map.to(device)
         # print the setting information
         print('==================== Sample Input Information ====================')
         print('Batch Size:', self.batch_size)
         print('Number of Agents:', self.num_agents)
         print('Number of Timesteps:', self.num_timesteps)
         print('Number of States:', self.num_states)
-        print('Image Size:', self.img_size)
+        print('Image Size:', (self.occupancy_flow_map_height, self.occupancy_flow_map_width))
         print('Number of Agent Types:', self.num_agent_type)
         print('Agent States Shape:', agent_states.shape)
         print('Agent Types Shape:', agent_types.shape)

@@ -13,11 +13,14 @@ exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
 project_dir = os.path.join(exp_dir, proj_name)
 
 # ============= Dataset Parameters=================
-dataset_config = load_config("configs/datasets/I24Motion.py")
-occupancy_flow_map_height = dataset_config.occupancy_flow_map_height
-occupancy_flow_map_width = dataset_config.occupancy_flow_map_width
-num_his_points = dataset_config.num_his_points
-num_waypoints = dataset_config.num_waypoints
+dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
+occupancy_flow_map_config = dataset_config.occupancy_flow_map
+occupancy_flow_map_height = occupancy_flow_map_config.occupancy_flow_map_height
+occupancy_flow_map_width = occupancy_flow_map_config.occupancy_flow_map_width
+
+task_config = dataset_config.task
+num_his_points = task_config.num_his_points
+num_waypoints = task_config.num_waypoints
 
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y

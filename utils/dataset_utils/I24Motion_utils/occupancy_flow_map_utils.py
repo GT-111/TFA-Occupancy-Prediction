@@ -1,4 +1,5 @@
 import numpy as np
+
 class GridMap():
     def __init__(self, occupancy_flow_map_config, task_config):
         # ============= Occupancy Flow Map Config =================
@@ -107,14 +108,16 @@ class GridMap():
         )
         # [num_points_to_render]
         gt_values = np.squeeze(np.ones_like(x_img_coord, dtype=np.float32), axis=-1)
-        topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_time_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
+        topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_time_steps] # [grid_height_cells, grid_width_cells, num_steps]
         
         xy_img_coord_t = tuple(xy_img_coord.T) 
         occupancy_map = np.zeros(topdown_shape, dtype=np.float32)
         np.add.at(occupancy_map, xy_img_coord_t, gt_values.squeeze())
         # scatter_nd() accumulates values if there are repeated indices.  Since
         # we sample densely, this happens all the time.  Clip the final values.
-        return np.clip(occupancy_map, 0.0, 1.0)
+        occupancy_map = np.clip(occupancy_map, 0.0, 1.0)
+        
+        return occupancy_map.unsqueeze(-1)
 
     
     def get_flow(self, timestamp, vehicle_points, vehicle_grids):

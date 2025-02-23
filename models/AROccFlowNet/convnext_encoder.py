@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from timm.models.convnext import convnext_small, convnext_tiny  # Use ConvNeXt Base
+from timm.models.convnext import convnext_small, convnext_tiny
+from zmq import device  # Use ConvNeXt Base
 from utils.config import load_config
-from utils.SampleModelInput import SampleModelInput
+from utils.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""
     def __init__(self, pretrained=True):
@@ -103,7 +104,14 @@ class ConvNeXtUNet(nn.Module):
 
         self.up_conv = nn.ConvTranspose2d(self.embed_dims[0], self.embed_dims[0], kernel_size=2, stride=2)
     def forward(self, occupancy_map, flow_map):
-        fearture_map = torch.cat([occupancy_map, flow_map], dim=-3)
+        """
+        Args:
+            occupancy_map: Occupancy map input (B, H, W, T, C)
+            flow_map: Flow map input (B, H, W, T, C)
+
+        """
+        fearture_map = torch.cat([occupancy_map, flow_map], dim=-1)
+        fearture_map = rearrange(fearture_map, "b h w t c -> b t c h w")  # (B, T, C, H, W)
         B, T, C, H, W = fearture_map.shape
 
         assert (H, W) == self.img_size, (
@@ -132,7 +140,7 @@ class ConvNeXtUNet(nn.Module):
         fused_features = self.temporal_conv(fused_features).squeeze(2)
 
         
-        return fused_features  # Final shape: (B, H*W, D)
+        return fused_features  # Final shape: (B, C, H/4, W/4)
 
 if __name__ == '__main__':
     config = load_config("configs/AROccFlowNetS.py")
