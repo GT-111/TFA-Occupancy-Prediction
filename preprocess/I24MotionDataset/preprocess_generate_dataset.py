@@ -52,18 +52,17 @@ class I24MotionDatasetFile():
         self.num_his_points = self.task_config.num_his_points
         self.num_waypoints = self.task_config.num_waypoints
 
-    def get_scene_data(self, prv_idx, cur_idx, nxt_idx):
-        prv_spatial_start, _, prv_temporal_start, prv_temporal_end = self.idx2range(prv_idx)
-        _, nxt_spatial_end, _, _ = self.idx2range(nxt_idx)
+    def get_scene_data(self, spatial_start, spatial_end, temporal_start ,temporal_end):
+        
         # time stamp is the index, use the index to slice the data
-        scene_data = self.data_df.loc[prv_temporal_start:prv_temporal_end].copy()
+        scene_data = self.data_df.loc[temporal_start:temporal_end].copy()
         scene_data.loc[:, 'timestamp']= scene_data.index
         scene_data.reset_index(drop=True, inplace=True)
-        scene_data = scene_data[(scene_data['x_position'].between(prv_spatial_start, nxt_spatial_end))]
+        scene_data = scene_data[(scene_data['x_position'].between(spatial_start, spatial_end))]
         return scene_data
 
     def idx2range(self, idx):
-
+        
         spatial_idx = idx % self.spatial_length
         temporal_idx = idx // self.spatial_length
         spatial_start = self.x_min + spatial_idx * self.spatial_stride
@@ -73,12 +72,20 @@ class I24MotionDatasetFile():
 
         return spatial_start, spatial_end, temporal_start, temporal_end
 
-    def get_feature_dics(self, prv_idx, cur_idx, nxt_idx):
+    def get_feature_dics(self, idx):
+        spatial_start, spatial_end, temporal_start ,temporal_end= self.idx2range(idx)
+        
+        # Determine prv spatial range
+        prv_spatial_start = spatial_start - self.spatial_window if spatial_start - self.spatial_window >= self.x_min else spatial_start
+        prv_spatial_end   = spatial_end - self.spatial_window if spatial_start - self.spatial_window >= self.x_min else spatial_start
 
-        scene_data = self.get_scene_data(prv_idx, cur_idx, nxt_idx)
-        prv_feature_dic = self.get_feature_dic(scene_data, prv_idx)
-        cur_feature_dic = self.get_feature_dic(scene_data, cur_idx)
-        nxt_feature_dic = self.get_feature_dic(scene_data, nxt_idx)
+        # Determine next spatial range
+        nxt_spatial_start = spatial_start + self.spatial_window if spatial_start + self.spatial_window <= self.x_max else spatial_end
+        nxt_spatial_end   = spatial_end + self.spatial_window if spatial_start + self.spatial_window <= self.x_max else spatial_end
+            
+        prv_feature_dic = self.get_feature_dic(prv_spatial_start, prv_spatial_end, temporal_start ,temporal_end)
+        cur_feature_dic = self.get_feature_dic(spatial_start, spatial_end, temporal_start ,temporal_end)
+        nxt_feature_dic = self.get_feature_dic(nxt_spatial_start, nxt_spatial_end, temporal_start ,temporal_end)
 
         return prv_feature_dic, cur_feature_dic, nxt_feature_dic
     
@@ -92,9 +99,9 @@ class I24MotionDatasetFile():
 
         return coordinates
     
-    def get_feature_dic(self, scene_data, scene_idx, threshold_to_keep_percent=0.3):
-        spatial_start, spatial_end, temporal_start, temporal_end = self.idx2range(scene_idx)
-
+    def get_feature_dic(self, spatial_start, spatial_end, temporal_start, temporal_end, threshold_to_keep_percent=0.25):
+        # Step 1: Get the scene data
+        scene_data = self.get_scene_data(spatial_start, spatial_end, temporal_start ,temporal_end)
         # Compute timestamp indices relative to temporal_start for the entire DataFrame
         scene_data['timestamp_idx'] = (scene_data['timestamp'] - temporal_start).astype(np.int32)
 
@@ -257,19 +264,11 @@ class I24MotionDatasetFile():
 
         return output_dic
     
-    def process_idx(self, idx, threshold_to_keep_num=10):
-        spatial_idx = idx % self.spatial_length
-        if spatial_idx == 0:
-            prv_idx = idx
-        else:
-            prv_idx = idx - 1
-        if spatial_idx == self.spatial_length - 1:
-            nxt_idx = idx
-        else:
-            nxt_idx = idx + 1
+    def process_idx(self, idx, threshold_to_keep_num=20):
+        
 
         # Get feature dictionaries and add occupancy and flow maps
-        prv_feature_dic, cur_feature_dic, nxt_feature_dic = self.get_feature_dics(prv_idx, idx, nxt_idx)
+        prv_feature_dic, cur_feature_dic, nxt_feature_dic = self.get_feature_dics(idx)
         if cur_feature_dic['num_vehicles'] <= threshold_to_keep_num or prv_feature_dic['num_vehicles'] <= threshold_to_keep_num or nxt_feature_dic['num_vehicles'] <= threshold_to_keep_num:
             return
 
@@ -294,13 +293,10 @@ class I24MotionDatasetPreprocessor():
     def process_file(self, data_file_path):
         data_file = I24MotionDatasetFile(data_file_path, dataset_config)
         num_scenes_to_process = min(data_file.max_idx, self.num_scenes_to_process_per_file)
-
-        for idx in range(num_scenes_to_process):
-            data_file.process_idx(idx)
-            
-        # with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-        #     # Wrap tqdm around the executor to show progress
-        #     list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=self.num_scenes_to_process_per_file))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+            # Wrap tqdm around the executor to show progress
+            list(tqdm(executor.map(data_file.process_idx, range(50000, self.num_scenes_to_process_per_file)), total=num_scenes_to_process - 50000))
 
     def process_files(self,):
         data_files = get_files_with_extension(self.processed_data_path, '.parquet')
