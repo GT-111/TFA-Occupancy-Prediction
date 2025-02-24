@@ -26,6 +26,10 @@ class I24MotionDatasetFile():
         self.generated_data_path = self.paths.generated_data_path
         # ============= Load Occpancy Flow Map Config =================
         self.occupancy_flow_map_config = dataset_config.occupancy_flow_map
+        # ============= Load Trajectory COnfig =================
+        self.trajectory_config = dataset_config.trajectory
+        self.node_features_list = self.trajectory_config.node_features_list
+        self.vector_features_list = self.trajectory_config.vector_features_list
         # ============= Load Task Config =================
         self.task_config = dataset_config.task
         self.grid_map_helper = GridMap(occupancy_flow_map_config=self.occupancy_flow_map_config, task_config=self.task_config)
@@ -99,7 +103,7 @@ class I24MotionDatasetFile():
 
         return coordinates
     
-    def get_feature_dic(self, spatial_start, spatial_end, temporal_start, temporal_end, threshold_to_keep_percent=0.25):
+    def get_feature_dic(self, spatial_start, spatial_end, temporal_start, temporal_end, threshold_to_keep_percent=0.4):
         # Step 1: Get the scene data
         scene_data = self.get_scene_data(spatial_start, spatial_end, temporal_start ,temporal_end)
         # Compute timestamp indices relative to temporal_start for the entire DataFrame
@@ -107,22 +111,22 @@ class I24MotionDatasetFile():
 
         # Aggregate counts of valid history and prediction timestamps per agent (_id)
         group_counts = scene_data.groupby('_id')['timestamp_idx'].agg(
-            count_his=lambda x: (x < self.history_length).sum(),
+            #count_his=lambda x: (x < self.history_length).sum(),
             count_pred=lambda x: ((x >= self.history_length) & (x < self.history_length + self.prediction_length)).sum()
         )
 
         # Calculate the valid percentage for history and prediction for each agent
-        group_counts['valid_his_percent'] = group_counts['count_his'] / self.history_length
+        #group_counts['valid_his_percent'] = group_counts['count_his'] / self.history_length
         group_counts['valid_pred_percent'] = group_counts['count_pred'] / self.prediction_length
 
         # Identify agents that meet the threshold criteria for both history and prediction
         valid_ids = group_counts[
-            (group_counts['valid_his_percent'] >= threshold_to_keep_percent) & 
+            #(group_counts['valid_his_percent'] >= threshold_to_keep_percent) & 
             (group_counts['valid_pred_percent'] >= threshold_to_keep_percent)
         ].index
 
         # Filter the original scene_data to keep only rows with valid agent IDs
-        scene_data = scene_data[scene_data['_id'].isin(valid_ids)]
+        #scene_data = scene_data[scene_data['_id'].isin(valid_ids)]
 
         vehicles_num = scene_data['_id'].nunique()
         vehicles_id = scene_data['_id'].unique()
@@ -218,13 +222,15 @@ class I24MotionDatasetFile():
         return result_dict
     
     def get_trajectories(self, feature_dic):
-
+        # Get the observed and occluded trajectories
+        # observed_trajectories: (Nobs, T, D)
+        # occluded_trajectories: (Nocc, T, D)
+        
         num_time_steps = self.num_his_points + self.num_waypoints
         observed_idx = (feature_dic['timestamp'][...,self.num_his_points - 1] > 0)
         
-        # 'cur/meta/length', 'cur/meta/width', 'cur/meta/class', 'cur/meta/direction'
-        vector_features_list = ['length', 'width', 'class', 'direction']
-        node_features_list = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']
+        vector_features_list =  self.vector_features_list
+        node_features_list = self.node_features_list
     
         vector_features_observed = np.stack([feature_dic[feature][observed_idx][:, None].repeat(num_time_steps, axis = 1) for feature in vector_features_list], axis = -1)
         vector_features_occluded = np.stack([feature_dic[feature][~observed_idx][:, None].repeat(num_time_steps, axis = 1) for feature in vector_features_list], axis = -1)
@@ -233,13 +239,17 @@ class I24MotionDatasetFile():
         observed_trajectories = np.concatenate([node_features_observed, vector_features_observed], axis = -1)
         occluded_trajectories = np.concatenate([node_features_occluded, vector_features_occluded], axis = -1)
 
-        return observed_trajectories, occluded_trajectories
+        observed_class = feature_dic['class'][observed_idx][:, None].repeat(num_time_steps, axis = 1)
+        occluded_class = feature_dic['class'][~observed_idx][:, None].repeat(num_time_steps, axis = 1)
+        # the vehicle class is concatenated to the end of the trajectory
+        
+        return observed_trajectories, occluded_trajectories, observed_class, occluded_class
     
 
     def get_output_dic(self, feature_dic):
 
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic)
-        observed_trajectories, occluded_trajectories = self.get_trajectories(feature_dic)
+        observed_trajectories, occluded_trajectories, observed_class, occluded_class = self.get_trajectories(feature_dic)
         result_dic = {
             'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
             'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
@@ -261,17 +271,28 @@ class I24MotionDatasetFile():
         all_occupancy_map = result_dic['occluded_occupancy_map'] + result_dic['observed_occupancy_map']
         all_occupancy_map = np.clip(all_occupancy_map, 0, 1)
         output_dic['flow_origin_occupancy_map'] = all_occupancy_map[...,self.num_his_points - 1: self.num_his_points -1 + self.num_waypoints]
-
+        
+        output_dic['observed_class'] = observed_class
+        output_dic['occluded_class'] = occluded_class
+        
         return output_dic
     
-    def process_idx(self, idx, threshold_to_keep_num=20):
+    def process_idx(self, idx, cur_threshold_to_keep_num=20, adj_threshold_to_keep_num=10):
         
 
         # Get feature dictionaries and add occupancy and flow maps
         prv_feature_dic, cur_feature_dic, nxt_feature_dic = self.get_feature_dics(idx)
-        if cur_feature_dic['num_vehicles'] <= threshold_to_keep_num or prv_feature_dic['num_vehicles'] <= threshold_to_keep_num or nxt_feature_dic['num_vehicles'] <= threshold_to_keep_num:
+        if cur_feature_dic['num_vehicles'] <= adj_threshold_to_keep_num or prv_feature_dic['num_vehicles'] <= cur_threshold_to_keep_num or nxt_feature_dic['num_vehicles'] <= adj_threshold_to_keep_num:
+            #print(f'Skipping scene {idx} due to low vehicle count.')
+            #print(f'cur: {cur_feature_dic["num_vehicles"]}, prv: {prv_feature_dic["num_vehicles"]}, nxt: {nxt_feature_dic["num_vehicles"]}')
             return
-
+        points_per_vehicle_history = (np.sum(cur_feature_dic['timestamp'][:, :self.num_his_points]!=0) / cur_feature_dic['num_vehicles'])/self.num_his_points
+        #points_per_vehicle_future = (np.sum(cur_feature_dic['timestamp'][:, self.num_his_points: self.num_his_points + self.num_waypoints]!=0) / cur_feature_dic['num_vehicles'])/self.num_waypoints
+        # if the number of valid points per vehicle is less than threshold_to_keep, skip the scene
+        if points_per_vehicle_history < 0.3:
+            #print(f'Skipping scene {idx} due to low points per vehicle.')
+            #print(f'points_per_vehicle_history: {points_per_vehicle_history}')
+            return
         output_dic = {
             'prv': self.get_output_dic(prv_feature_dic),
             'cur': self.get_output_dic(cur_feature_dic),
@@ -296,7 +317,7 @@ class I24MotionDatasetPreprocessor():
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             # Wrap tqdm around the executor to show progress
-            list(tqdm(executor.map(data_file.process_idx, range(50000, self.num_scenes_to_process_per_file)), total=num_scenes_to_process - 50000))
+            list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=num_scenes_to_process))
 
     def process_files(self,):
         data_files = get_files_with_extension(self.processed_data_path, '.parquet')
