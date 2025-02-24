@@ -1,5 +1,5 @@
 from utils.file_utils import get_config, get_last_checkpoint
-from utils.config import load_config
+from configs.utils.config import load_config
 from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric

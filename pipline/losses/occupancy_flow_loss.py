@@ -1,39 +1,19 @@
 import torch
-import torch.nn.functional as F
-from utils.metrics_utils import sample
 from typing import Dict
 from functools import partial
+import torch.nn.functional as F
+from torchmetrics import MeanMetric
+from utils.occupancy_flow_map_utils import sample
 from torchmetrics.functional.classification import binary_average_precision
+from pipline.templates.losses_template import Loss
 
-# Sigmoid focal loss function with optional alpha and gamma parameters.
-def sigmoid_focal_loss(inputs: torch.Tensor, targets: torch.Tensor, from_logits=False, alpha: float = 0.25, gamma: float = 2):
-    if from_logits:
-        p = torch.sigmoid(inputs)
-        ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
-    else:
-        p = inputs
-        ce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
+class OccupancyFlowMapLoss(Loss):
     
-    p_t = p * targets + (1 - p) * (1 - targets)
-    loss = ce_loss * ((1 - p_t) ** gamma)
-
-    if alpha >= 0:
-        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
-        loss = alpha_t * loss
-
-    return torch.sum(loss, dim=-1)
-
-# Batch-wise binary cross-entropy loss.
-def batch_binary_cross_entropy(input, target):
-    return torch.mean(F.binary_cross_entropy(input=input, target=target, reduction="none"), dim=-1)
-
-
-class OccupancyFlowMapLoss:
-    def __init__(self, config, ogm_weight=1000.0, occ_weight=1000.0, flow_weight=1.0, flow_origin_weight=1000.0,
+    def __init__(self, device, ogm_weight=1000.0, occ_weight=1000.0, flow_weight=1.0, flow_origin_weight=1000.0,
                  replica=1.0, no_use_warp=False, use_pred=False, use_focal_loss=True, use_gt=False):
         """Initializes the loss module with weights and configuration options."""
 
-        self.config = config
+        self.device = device
         self.ogm_weight = ogm_weight  # Weight for observed occupancy loss
         self.flow_weight = flow_weight  # Weight for flow loss
         self.occ_weight = occ_weight  # Weight for occluded occupancy loss
@@ -52,19 +32,31 @@ class OccupancyFlowMapLoss:
         self.flow_origin_weight = flow_origin_weight
         self.use_gt = use_gt
 
-    def __call__(self, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits,
+        self.observed_occupancy_cross_entropy = MeanMetric().to(self.device)
+        self.occluded_occupancy_cross_entropy = MeanMetric().to(self.device)
+        self.flow_norm = MeanMetric().to(self.device)
+        self.flow_wrap_occupancy_cross_entropy = MeanMetric().to(self.device)
+        
+    def update(self, loss_dict):
+        
+        self.observed_occupancy_cross_entropy.update(loss_dict['observed_occupancy_cross_entropy'])
+        self.occluded_occupancy_cross_entropy.update(loss_dict['occluded_occupancy_cross_entropy'])
+        self.flow_norm.update(loss_dict['flow_norm'])
+        self.flow_wrap_occupancy_cross_entropy.update(loss_dict['flow_wrap_occupancy_cross_entropy'])
+        
+    def compute(self, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits,
                  gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow_logits,
                  flow_origin_occupancy_logits, gt_mask) -> Dict[str, torch.Tensor]:
         """
         Calculate the occupancy flow map loss.
 
         Args:
-            pred_observed_occupancy_logits: Predicted logits for observed occupancy.
-            pred_occluded_occupancy_logits: Predicted logits for occluded occupancy.
-            pred_flow_logits: Predicted logits for flow.
-            gt_observed_occupancy_logits: Ground truth observed occupancy.
-            gt_occluded_occupancy_logits: Ground truth occluded occupancy.
-            gt_flow_logits: Ground truth flow.
+            pred_observed_occupancy_logits: Predicted logits for observed occupancy [B, H, W, T ,1].
+            pred_occluded_occupancy_logits: Predicted logits for occluded occupancy [B, H, W, T ,1].
+            pred_flow_logits: Predicted logits for flow [B, H, W, T , 2].
+            gt_observed_occupancy_logits: Ground truth observed occupancy [B, H, W, T ,1].
+            gt_occluded_occupancy_logits: Ground truth occluded occupancy [B, H, W, T ,1].
+            gt_flow_logits: Ground truth flow [B, H, W, T ,2].
             flow_origin_occupancy_logits: Flow origin occupancy logits.
             gt_mask: Ground truth mask to indicate valid regions.
 
@@ -73,7 +65,7 @@ class OccupancyFlowMapLoss:
         """
         device = flow_origin_occupancy_logits.device
 
-        loss_dict = {'observed_xe': [], 'occluded_xe': [], 'flow': [], 'flow_warp_xe': []}
+        loss_dict = {'observed_occupancy_cross_entropy': [], 'occluded_occupancy_cross_entropy': [], 'flow_norm': [], 'flow_wrap_occupancy_cross_entropy': []}
         n_waypoints = self.config.task_config.num_waypoints
 
         # Generate identity indices for warping operations
@@ -86,9 +78,9 @@ class OccupancyFlowMapLoss:
         f_c = []  # Track flow correction factor
         for k in range(n_waypoints):
             # Extract predicted and ground truth values for current waypoint
-            pred_observed_occupancy = pred_observed_occupancy_logits[:, k]
-            pred_occluded_occupancy = pred_occluded_occupancy_logits[:, k]
-            pred_flow = pred_flow_logits[:, k]
+            pred_observed_occupancy = pred_observed_occupancy_logits[..., k, :]
+            pred_occluded_occupancy = pred_occluded_occupancy_logits[..., k, :]
+            pred_flow = pred_flow_logits[..., k, :]
 
             true_observed_occupancy = gt_observed_occupancy_logits[..., k]
             true_occluded_occupancy = gt_occluded_occupancy_logits[..., k]
@@ -98,11 +90,11 @@ class OccupancyFlowMapLoss:
             mask = gt_mask[..., k]
 
             # Calculate observed occupancy loss
-            loss_dict['observed_xe'].append(
+            loss_dict['observed_occupancy_cross_entropy'].append(
                 self._sigmoid_xe_loss(true_observed_occupancy * mask, pred_observed_occupancy * mask, self.ogm_weight))
 
             # Calculate occluded occupancy loss
-            loss_dict['occluded_xe'].append(
+            loss_dict['occluded_occupancy_cross_entropy'].append(
                 self._sigmoid_occ_loss(true_occluded_occupancy * mask, pred_occluded_occupancy * mask, self.occ_weight))
 
             # Combine observed and occluded occupancy
@@ -118,7 +110,7 @@ class OccupancyFlowMapLoss:
                 res = 1.0
 
             f_c.append(res)
-            loss_dict['flow'].append((k + 1) * res * self._flow_loss(true_flow * mask.unsqueeze(-1), pred_flow * mask.unsqueeze(-1)))
+            loss_dict['flow_norm'].append((k + 1) * res * self._flow_loss(true_flow * mask.unsqueeze(-1), pred_flow * mask.unsqueeze(-1)))
 
             # Warp loss
             if not self.no_use_warp:
@@ -126,26 +118,42 @@ class OccupancyFlowMapLoss:
                 wp_origin = sample(image=flow_origin_occupancy, warp=warped_indices, pixel_type=0)
 
                 if self.use_pred:
-                    loss_dict['flow_warp_xe'].append(res * self._sigmoid_xe_warp_loss_pred(
+                    loss_dict['flow_wrap_occupancy_cross_entropy'].append(res * self._sigmoid_xe_warp_loss_pred(
                         true_all_occupancy * mask, pred_observed_occupancy * mask, pred_occluded_occupancy * mask, wp_origin, self.flow_origin_weight))
                 else:
-                    loss_dict['flow_warp_xe'].append(res * self._sigmoid_xe_warp_loss(
+                    loss_dict['flow_wrap_occupancy_cross_entropy'].append(res * self._sigmoid_xe_warp_loss(
                         true_all_occupancy * mask, true_observed_occupancy * mask, true_occluded_occupancy * mask, wp_origin, self.flow_origin_weight))
 
         # Compute the final loss as the average across waypoints
         n_dict = {
-            'observed_xe': sum(loss_dict['observed_xe']) / n_waypoints,
-            'occluded_xe': sum(loss_dict['occluded_xe']) / n_waypoints,
-            'flow': sum(loss_dict['flow']) / sum(f_c)
+            'observed_occupancy_cross_entropy': sum(loss_dict['observed_occupancy_cross_entropy']) / n_waypoints,
+            'occluded_occupancy_cross_entropy': sum(loss_dict['occluded_occupancy_cross_entropy']) / n_waypoints,
+            'flow_norm': sum(loss_dict['flow_norm']) / sum(f_c)
         }
 
         if not self.no_use_warp:
-            n_dict['flow_warp_xe'] = sum(loss_dict['flow_warp_xe']) / sum(f_c)
+            n_dict['flow_wrap_occupancy_cross_entropy'] = sum(loss_dict['flow_wrap_occupancy_cross_entropy']) / sum(f_c)
         else:
-            n_dict['flow_warp_xe'] = 0.0
+            n_dict['flow_wrap_occupancy_cross_entropy'] = 0.0
 
         return n_dict
-
+    def get_result(self):
+        """Returns the computed loss values."""
+        result_dict = {}
+        
+        result_dict['observed_occupancy_cross_entropy'] = self.observed_occupancy_cross_entropy.compute()
+        result_dict['occluded_occupancy_cross_entropy'] = self.occluded_occupancy_cross_entropy.compute()
+        result_dict['flow_norm'] = self.flow_norm.compute()
+        result_dict['flow_wrap_occupancy_cross_entropy'] = self.flow_wrap_occupancy_cross_entropy.compute()
+        
+        # Reset the metrics after computation
+        self.observed_occupancy_cross_entropy.reset()
+        self.occluded_occupancy_cross_entropy.reset()
+        self.flow_norm.reset()
+        self.flow_wrap_occupancy_cross_entropy.reset()
+        # Clear the loss dictionary
+        
+        return result_dict
     # Utility function to flatten tensors
     def _batch_flatten(self, input_tensor: torch.Tensor) -> torch.Tensor:
         return torch.reshape(input_tensor, [input_tensor.size(0), -1])
@@ -173,3 +181,26 @@ class OccupancyFlowMapLoss:
         flow_exists_sum = torch.sum(diff != 0) * self.replica / 2
         mean_diff = diff_norm_sum / flow_exists_sum if flow_exists_sum else 0
         return loss_weight * mean_diff
+    
+# Sigmoid focal loss function with optional alpha and gamma parameters.
+def sigmoid_focal_loss(inputs: torch.Tensor, targets: torch.Tensor, from_logits=False, alpha: float = 0.25, gamma: float = 2):
+    if from_logits:
+        p = torch.sigmoid(inputs)
+        ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    else:
+        p = inputs
+        ce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
+    
+    p_t = p * targets + (1 - p) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+
+    if alpha >= 0:
+        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+        loss = alpha_t * loss
+
+    return torch.sum(loss, dim=-1)
+
+# Batch-wise binary cross-entropy loss.
+def batch_binary_cross_entropy(input, target):
+    return torch.mean(F.binary_cross_entropy(input=input, target=target, reduction="none"), dim=-1)
+

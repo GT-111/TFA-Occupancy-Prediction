@@ -5,7 +5,7 @@
 import torch
 import torch.nn as nn
 import einops
-from utils.config import load_config
+from configs.utils.config import load_config
 
 class MotionEncoder(nn.Module):
 
@@ -100,14 +100,6 @@ class MotionPredictor(nn.Module):
         trajs, scores, context = self.decoder(agent_embeddings)
         return trajs, scores, context, agent_embeddings
     
-from utils.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
-if __name__ == "__main__":
 
-    input_dic = SampleModelInput().generate_sample_input()
-    agent_states = input_dic['agent_states']
-    agent_types = input_dic['agent_types']
-    config = load_config("configs/AROccFlowNetS.py")
-    # Initialize model
-    model = MotionPredictor(config.models.motionpredictor)
-    trajs, scores, context, agent_embeddings = model(agent_states, agent_types)
-    print(trajs.shape)
+if __name__ == "__main__":
+    pass

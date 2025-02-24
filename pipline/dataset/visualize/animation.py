@@ -1,6 +1,6 @@
 from utils.file_utils import get_config
 from utils.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
-from dataset.I24MotionDataset import I24Dataset
+from pipline.dataset.I24Motion_dataset import I24Dataset
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.colors import LinearSegmentedColormap
@@ -275,7 +275,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         name = name + '_optical_flow'
     ani.save(name + '.mp4', writer='ffmpeg', fps=2, dpi=300)
 
-from utils.metrics_utils import sample
+from training.metrics.metrics_utils import sample
 import torch
 
 def test_flow_wrap_occupancy(test_data, config, k):

@@ -2,13 +2,13 @@ import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.config import load_config
+from configs.utils.config import load_config
 from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.convnext_encoder import ConvNeXtUNet
 from models.AROccFlowNet.conv_lstm import ConvLSTM
 from models.AROccFlowNet.positional_encoding import positional_encoding
-from utils.dataset_utils.I24Motion_utils import SampleModelInput
-import torch.utils.checkpoint as checkpoint
+from pipline.dataset.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
+
 class AROccFlowNet(nn.Module):
 
     def __init__(self, config):
@@ -60,16 +60,16 @@ class AROccFlowNet(nn.Module):
             batch_size,  hidden_dim, feature_height, feature_width = prv_occupancy_feature.size()
             prv_occupancy_feature = einops.rearrange(prv_occupancy_feature, 'b d h w -> b (h w) d', h=feature_height, w=feature_width, d=hidden_dim)
             # TODO: Add the adjacent scene joint_feature
-            cur_occpancy_feature = self.transformer_decoder(prv_occupancy_feature, cur_fused_feature_projected)
-            cur_occpancy_feature = cur_occpancy_feature.view(batch_size, feature_height, feature_width, -1) 
-            cur_occpancy_feature = einops.rearrange(cur_occpancy_feature, 'b h w d -> b d h w', h=feature_height, w=feature_width, d=hidden_dim)
-            prv_occupancy_feature = cur_occpancy_feature.clone()
-            cur_occpancy_feature = F.interpolate(cur_occpancy_feature, scale_factor=4, mode='bilinear', align_corners=False)
-            cur_occpancy_feature = einops.rearrange(cur_occpancy_feature, 'b d h w -> b h w d')
+            cur_occupancy_feature = self.transformer_decoder(prv_occupancy_feature, cur_fused_feature_projected)
+            cur_occupancy_feature = cur_occupancy_feature.view(batch_size, feature_height, feature_width, -1) 
+            cur_occupancy_feature = einops.rearrange(cur_occupancy_feature, 'b h w d -> b d h w', h=feature_height, w=feature_width, d=hidden_dim)
+            prv_occupancy_feature = cur_occupancy_feature.clone()
+            cur_occupancy_feature = F.interpolate(cur_occupancy_feature, scale_factor=4, mode='bilinear', align_corners=False)
+            cur_occupancy_feature = einops.rearrange(cur_occupancy_feature, 'b d h w -> b h w d')
             
 
-            flow_list.append(self.flow_decoder(cur_occpancy_feature))  # Reduce memory usage
-            occupancy_list.append(self.occupancy_decoder(cur_occpancy_feature))
+            flow_list.append(self.flow_decoder(cur_occupancy_feature))  # Reduce memory usage
+            occupancy_list.append(self.occupancy_decoder(cur_occupancy_feature))
 
 
         return flow_list, occupancy_list, cur_predicted_trajs, cur_predicted_traj_scores

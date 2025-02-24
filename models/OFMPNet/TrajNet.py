@@ -235,16 +235,5 @@ class TrajNetCrossAttention(nn.Module):
 
 
 
-
-
-from utils.file_utils import get_config
 if __name__=='__main__':
-    config = get_config('./config.yaml')
-
-    
-    model = TrajNetCrossAttention(config)
-    obs_traj = torch.zeros([2,40,40,16])
-    occ_traj = torch.zeros([2,12,40,16])
-    query = torch.zeros([2, 12, 256, 384])
-    res = model(query,obs_traj,occ_traj)
-    print(res.shape)
+    pass

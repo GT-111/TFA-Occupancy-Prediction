@@ -44,5 +44,3 @@ def get_last_checkpoint(checkpoint_path = './checkpoints/'):
                 files.append(os.path.join(root, f))
     files.sort(key=lambda x: int(re.search(r'epoch_(\d+)', x).group(1)) if re.search(r'epoch_(\d+)', x) else -1)
     return files[-1] if len(files) > 0 else None
-
-get_last_checkpoint()

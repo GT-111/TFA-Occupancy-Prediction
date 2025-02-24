@@ -4,10 +4,8 @@ import concurrent.futures
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-import warnings
-warnings.filterwarnings("ignore")
-from utils.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
-from utils.config import load_config
+from pipline.dataset.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
+from configs.utils.config import load_config
 from utils.file_utils import get_files_with_extension
 
 if __name__ == '__main__':
@@ -239,17 +237,17 @@ class I24MotionDatasetFile():
         observed_trajectories = np.concatenate([node_features_observed, vector_features_observed], axis = -1)
         occluded_trajectories = np.concatenate([node_features_occluded, vector_features_occluded], axis = -1)
 
-        observed_class = feature_dic['class'][observed_idx][:, None].repeat(num_time_steps, axis = 1)
-        occluded_class = feature_dic['class'][~observed_idx][:, None].repeat(num_time_steps, axis = 1)
+        observed_types = feature_dic['class'][observed_idx][:, None].repeat(num_time_steps, axis = 1)
+        occluded_types = feature_dic['class'][~observed_idx][:, None].repeat(num_time_steps, axis = 1)
         # the vehicle class is concatenated to the end of the trajectory
         
-        return observed_trajectories, occluded_trajectories, observed_class, occluded_class
+        return observed_trajectories, occluded_trajectories, observed_types, occluded_types
     
 
     def get_output_dic(self, feature_dic):
 
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic)
-        observed_trajectories, occluded_trajectories, observed_class, occluded_class = self.get_trajectories(feature_dic)
+        observed_trajectories, occluded_trajectories, observed_types, occluded_types = self.get_trajectories(feature_dic)
         result_dic = {
             'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
             'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
@@ -272,8 +270,8 @@ class I24MotionDatasetFile():
         all_occupancy_map = np.clip(all_occupancy_map, 0, 1)
         output_dic['flow_origin_occupancy_map'] = all_occupancy_map[...,self.num_his_points - 1: self.num_his_points -1 + self.num_waypoints]
         
-        output_dic['observed_class'] = observed_class
-        output_dic['occluded_class'] = occluded_class
+        output_dic['observed_types'] = observed_types
+        output_dic['occluded_types'] = occluded_types
         
         return output_dic
     

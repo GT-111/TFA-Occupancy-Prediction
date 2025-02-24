@@ -195,8 +195,6 @@ class Pyramid3DDecoder(nn.Module):
         return x
 
 
-from utils.file_utils import get_config
 if __name__=='__main__':
-    config = get_config('./config.yaml')
-    model = Pyramid3DDecoder(config)
+    pass
     

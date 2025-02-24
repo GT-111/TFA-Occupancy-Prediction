@@ -1,4 +1,4 @@
-from utils.config import load_config
+from configs.utils.config import load_config
 from preprocess.I24MotionDataset.preprocess_preparation import process_raw_json2csv
 from preprocess.I24MotionDataset.preprocess_generate_dataset import I24MotionDatasetPreprocessor
 if __name__ == '__main__':

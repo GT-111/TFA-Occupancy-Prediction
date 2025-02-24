@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchinfo import summary
 
-from utils.metrics_utils import sample
+from utils.occupancy_flow_map_utils import sample
 
 
 class FlowGuidedMultiHeadSelfAttention(nn.Module):
@@ -180,11 +180,6 @@ class FlowGuidedMultiHeadSelfAttention(nn.Module):
         
         return y, torch.reshape(pos,(B, self.n_groups, Hk, Wk, 2)), torch.reshape(reference,(B, self.n_groups, Hk, Wk, 2))
 
-from utils.file_utils import get_config
+
 if __name__=='__main__':
-    config = get_config('./config.yaml')
-    dummy_x = torch.randn((1,32,32,192))
-    print(dummy_x.shape)
-    model = FlowGuidedMultiHeadSelfAttention(config)
-    out = model(dummy_x)
-    print(out)
+    pass

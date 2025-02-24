@@ -524,14 +524,7 @@ class SwinTransformerEncoder(torch.nn.Module):
     def forward(self, occupancy_map, road_map, flow_map, training=True):
         res_list = self.forward_features(occupancy_map=occupancy_map, flow_map=flow_map, road_map=road_map, training=training)
         return res_list
-from utils.file_utils import get_config
+
 
 if __name__=='__main__':
-    config = get_config('./config.yaml')
-    model = SwinTransformerEncoder(config)
-    occupancy_map = torch.randn((2,256,256,40))
-    road_map = torch.randn((2,256,256,3))
-    flow_map = torch.randn((2,256,256,40, 2))
-    res = model(occupancy_map,road_map,flow_map[:,:,:,-1,:])
-    for r in res:
-        print(r.shape)
+    pass

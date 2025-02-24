@@ -5,7 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from utils.config import load_config
+from configs.utils.config import load_config
 from utils.file_utils import get_files_with_extension
 
 

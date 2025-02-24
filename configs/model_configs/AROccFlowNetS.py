@@ -1,4 +1,4 @@
-from utils.config import load_config
+from configs.utils.config import load_config
 import os
 # ============= Seed ===================
 random_seed = 42

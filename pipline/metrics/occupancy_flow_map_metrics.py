@@ -1,27 +1,87 @@
 import torch
 from typing import List
+from torchmetrics import MeanMetric
+from pipline.templates.metrics_template import Metrics
 from torchmetrics.functional.classification import binary_average_precision
-from utils.metrics_utils import sample, _mean
+from training.metrics.metrics_utils import sample, _mean
+
+class OGMFlowMetrics(Metrics):
+    def __init__(self, device, no_warp=False):
+        # super().__init__()
+        self.observed_auc = MeanMetric().to(device)
+        self.occluded_auc = MeanMetric().to(device)
+
+        self.observed_iou = MeanMetric().to(device)
+        self.occluded_iou = MeanMetric().to(device)
+        
+        self.flow_epe = MeanMetric().to(device)
+        self.no_warp = no_warp
+
+        if not no_warp:
+            self.flow_ogm_auc = MeanMetric().to(device)
+            self.flow_ogm_iou = MeanMetric().to(device)
+
+    
+    
+    def update(self, metrics):
+        self.observed_auc.update(metrics['vehicles_observed_occupancy_auc'])
+        self.occluded_auc.update(metrics['vehicles_occluded_occupancy_auc'])
+
+        self.observed_iou.update(metrics['vehicles_observed_occupancy_iou'])
+        self.occluded_iou.update(metrics['vehicles_occluded_occupancy_iou'])
+
+        self.flow_epe.update(metrics['vehicles_flow_epe'])
+        if not self.no_warp:
+            self.flow_ogm_auc.update(metrics['vehicles_flow_warped_occupancy_auc'])
+            self.flow_ogm_iou.update(metrics['vehicles_flow_warped_occupancy_iou'])
+
+    def compute(self, prediction_dict, ground_truth_dict):
+        
+
+    
+
+    def get_result(self):
+        res_dict={}
+        res_dict['vehicles_observed_occupancy_auc'] = self.observed_auc.compute()
+        res_dict['vehicles_occluded_occupancy_auc'] = self.occluded_auc.compute()
+
+        res_dict['vehicles_observed_occupancy_iou'] = self.observed_iou.compute()
+        res_dict['vehicles_occluded_occupancy_iou'] = self.occluded_iou.compute()
+
+        res_dict['vehicles_flow_epe'] = self.flow_epe.compute()
+        if not self.no_warp:
+            res_dict['vehicles_flow_warped_occupancy_auc'] = self.flow_ogm_auc.compute()
+            res_dict['vehicles_flow_warped_occupancy_iou'] = self.flow_ogm_iou.compute()
+
+        return res_dict
+
+
 
 
 
 def compute_occupancy_flow_metrics(
     config,
-    pred_observed_occupancy_logits,
+    pred_observed_occupancy_logits ,
     pred_occluded_occupancy_logits,
     pred_flow_logits,
     gt_observed_occupancy_logits,
     gt_occluded_occupancy_logits,
     gt_flow_logits,
     flow_origin_occupancy_logits,
+    gt_mask,
     no_warp: bool=False
 ):
   """Computes occupancy (observed, occluded) and flow metrics.
 
   Args:
-    config: OccupancyFlowTaskConfig proto message.
-    true_waypoints: Set of num_waypoints ground truth labels.
-    pred_waypoints: Predicted set of num_waypoints occupancy and flow topdowns.
+    pred_observed_occupancy_logits: Predicted logits for observed occupancy [B, H, W, T ,1].
+    pred_occluded_occupancy_logits: Predicted logits for occluded occupancy [B, H, W, T ,1].
+    pred_flow_logits: Predicted logits for flow [B, H, W, T , 2].
+    gt_observed_occupancy_logits: Ground truth observed occupancy [B, H, W, T ,1].
+    gt_occluded_occupancy_logits: Ground truth occluded occupancy [B, H, W, T ,1].
+    gt_flow_logits: Ground truth flow [B, H, W, T ,2].
+    flow_origin_occupancy_logits: Flow origin occupancy logits.
+    gt_mask: Ground truth mask to indicate valid regions.
 
   Returns:
     OccupancyFlowMetrics proto message containing mean metric values averaged
@@ -29,10 +89,10 @@ def compute_occupancy_flow_metrics(
   """
   # Accumulate metric values for each waypoint and then compute the mean.
   metrics_dict = {
-      'vehicles_observed_auc': [],
-      'vehicles_occluded_auc': [],
-      'vehicles_observed_iou': [],
-      'vehicles_occluded_iou': [],
+      'vehicles_observed_occupancy_auc': [],
+      'vehicles_occluded_occupancy_auc': [],
+      'vehicles_observed_occupancy_iou': [],
+      'vehicles_occluded_occupancy_iou': [],
       'vehicles_flow_epe': [],
       'vehicles_flow_warped_occupancy_auc': [],
       'vehicles_flow_warped_occupancy_iou': [],
@@ -53,12 +113,13 @@ def compute_occupancy_flow_metrics(
 
   # Iterate over waypoints.
   for k in range(config.task_config.num_waypoints):
-    pred_observed_occupancy = pred_observed_occupancy_logits[:,k]
-    pred_occluded_occupancy = pred_occluded_occupancy_logits[:,k]
+    pred_observed_occupancy = pred_observed_occupancy_logits[..., k, :]
+    pred_occluded_occupancy = pred_occluded_occupancy_logits[..., k, :]
     pred_flow = pred_flow_logits[:,k]
-    true_observed_occupancy = gt_observed_occupancy_logits[...,k][...,None]
-    true_occluded_occupancy = gt_occluded_occupancy_logits[...,k][...,None]
+    true_observed_occupancy = gt_observed_occupancy_logits[..., k, :]
+    true_occluded_occupancy = gt_occluded_occupancy_logits[..., k, :]
     true_flow = gt_flow_logits[...,k,:]
+    mask = gt_mask[..., k]
     # adding this CAUSE DISTRIBUTE ERROR!!!!
     # has_true_observed_occupancy[k] = tf.reduce_max(true_observed_occupancy) > 0
     # has_true_occluded_occupancy[k] = tf.reduce_max(true_occluded_occupancy) > 0
@@ -70,24 +131,24 @@ def compute_occupancy_flow_metrics(
     # Compute occupancy metrics.
     if True:#:has_true_observed_occupancy[k]:
       metrics_dict['vehicles_observed_auc'].append(
-          _compute_occupancy_auc(true_observed_occupancy,
-                                pred_observed_occupancy))
+          _compute_occupancy_auc(true_observed_occupancy * mask,
+                                pred_observed_occupancy * mask))
       metrics_dict['vehicles_observed_iou'].append(
-        _compute_occupancy_soft_iou(true_observed_occupancy,
-                                    pred_observed_occupancy))
+        _compute_occupancy_soft_iou(true_observed_occupancy * mask,
+                                    pred_observed_occupancy * mask))
     if True:#has_true_occluded_occupancy[k]:                       
       metrics_dict['vehicles_occluded_auc'].append(
-          _compute_occupancy_auc(true_occluded_occupancy,
-                                pred_occluded_occupancy))
+          _compute_occupancy_auc(true_occluded_occupancy * mask,
+                                pred_occluded_occupancy * mask))
       
       metrics_dict['vehicles_occluded_iou'].append(
-          _compute_occupancy_soft_iou(true_occluded_occupancy,
-                                      pred_occluded_occupancy))
+          _compute_occupancy_soft_iou(true_occluded_occupancy * mask,
+                                      pred_occluded_occupancy * mask))
       
     # Compute flow metrics.
     if True:#has_true_flow:
       metrics_dict['vehicles_flow_epe'].append(
-          _compute_flow_epe(true_flow, pred_flow))
+          _compute_flow_epe(true_flow * mask.unsqueeze(-1), pred_flow * mask.unsqueeze(-1)))
 
       # Compute flow-warped occupancy metrics.
       # First, construct ground-truth occupancy of all observed and occluded
@@ -108,10 +169,10 @@ def compute_occupancy_flow_metrics(
         # Now compute occupancy metrics between this quantity and ground-truth.
         # reverse the order of true and pred
         metrics_dict['vehicles_flow_warped_occupancy_auc'].append(
-            _compute_occupancy_auc(true_all_occupancy, flow_grounded_pred_all_occupancy))
+            _compute_occupancy_auc(true_all_occupancy  * mask, flow_grounded_pred_all_occupancy  * mask))
         metrics_dict['vehicles_flow_warped_occupancy_iou'].append(
-            _compute_occupancy_soft_iou(flow_grounded_pred_all_occupancy,
-                                        true_all_occupancy))
+            _compute_occupancy_soft_iou(flow_grounded_pred_all_occupancy  * mask,
+                                        true_all_occupancy * mask))
 
   # Compute means and return as proto message.
   metrics_dict = {k: _mean(v) for k, v in metrics_dict.items()}
@@ -204,7 +265,6 @@ def _compute_flow_epe(
 
 
 def _flow_warp(
-    config,
     pred_flow_logits,
     flow_origin_occupancy_logits,
 ) -> List[torch.Tensor]:
@@ -214,9 +274,8 @@ def _flow_warp(
   vector.
 
   Args:
-    config: OccupancyFlowTaskConfig proto message.
-    true_waypoints: Set of num_waypoints ground truth labels.
-    pred_waypoints: Predicted set of num_waypoints occupancy and flow topdowns.
+    pred_flow_logits: Predicted flow logits [batch_size, height, width, T, 2].
+    flow_origin_occupancy_logits: Flow origin occupancy logits
 
   Returns:
     List of `num_waypoints` occupancy grids for vehicles as float32
