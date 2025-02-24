@@ -100,7 +100,7 @@ class MotionPredictor(nn.Module):
         trajs, scores, context = self.decoder(agent_embeddings)
         return trajs, scores, context, agent_embeddings
     
-from utils.SampleModelInput import SampleModelInput
+from utils.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
 if __name__ == "__main__":
 
     input_dic = SampleModelInput().generate_sample_input()

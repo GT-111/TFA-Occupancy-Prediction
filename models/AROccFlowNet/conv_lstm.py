@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.config import load_config
-from utils.SampleModelInput import SampleModelInput
+from utils.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, bias=True):
         super(ConvLSTMCell, self).__init__()

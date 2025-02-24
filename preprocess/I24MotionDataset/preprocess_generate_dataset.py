@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import warnings
 warnings.filterwarnings("ignore")
-from utils.occ_flow_utils import GridMap
+from utils.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
 from utils.config import load_config
 from utils.file_utils import get_files_with_extension
 
