@@ -1,11 +1,12 @@
+from sklearn import metrics
 import torch
 from typing import List
 from torchmetrics import MeanMetric
 from pipline.templates.metrics_template import Metrics
 from torchmetrics.functional.classification import binary_average_precision
-from training.metrics.metrics_utils import sample, _mean
+from pipline.utils.occupancy_flow_map_utils import sample, _mean
 
-class OGMFlowMetrics(Metrics):
+class OccupancyFlowMapMetrics(Metrics):
     def __init__(self, device, no_warp=False):
         # super().__init__()
         self.observed_auc = MeanMetric().to(device)
@@ -35,7 +36,26 @@ class OGMFlowMetrics(Metrics):
             self.flow_ogm_auc.update(metrics['vehicles_flow_warped_occupancy_auc'])
             self.flow_ogm_iou.update(metrics['vehicles_flow_warped_occupancy_iou'])
 
-    def compute(self, prediction_dict, ground_truth_dict):
+    def compute(self, pred_observed_occupancy_logits ,
+                pred_occluded_occupancy_logits,
+                pred_flow_logits,
+                gt_observed_occupancy_logits,
+                gt_occluded_occupancy_logits,
+                gt_flow_logits,
+                flow_origin_occupancy_logits,
+                gt_mask,):
+        metrics_dict = compute_occupancy_flow_metrics(
+            pred_observed_occupancy_logits ,
+            pred_occluded_occupancy_logits,
+            pred_flow_logits,
+            gt_observed_occupancy_logits,
+            gt_occluded_occupancy_logits,
+            gt_flow_logits,
+            flow_origin_occupancy_logits,
+            gt_mask,
+            self.no_warp
+        )
+        return metrics_dict
         
 
     
@@ -60,7 +80,6 @@ class OGMFlowMetrics(Metrics):
 
 
 def compute_occupancy_flow_metrics(
-    config,
     pred_observed_occupancy_logits ,
     pred_occluded_occupancy_logits,
     pred_flow_logits,
@@ -101,18 +120,17 @@ def compute_occupancy_flow_metrics(
   has_true_observed_occupancy = {-1: True}
   has_true_occluded_occupancy = {-1: True}
 
-
+  batch_size, occupancy_flow_map_height, occupancy_flow_map_width, num_waypoints, _ = pred_flow_logits.size()
 
   # Warp flow-origin occupancies according to predicted flow fields.
   if not no_warp:
     warped_flow_origins = _flow_warp(
-        config=config,
         pred_flow_logits=pred_flow_logits,
         flow_origin_occupancy_logits=flow_origin_occupancy_logits,
     )
 
   # Iterate over waypoints.
-  for k in range(config.task_config.num_waypoints):
+  for k in range(num_waypoints):
     pred_observed_occupancy = pred_observed_occupancy_logits[..., k, :]
     pred_occluded_occupancy = pred_occluded_occupancy_logits[..., k, :]
     pred_flow = pred_flow_logits[:,k]
@@ -283,9 +301,9 @@ def _flow_warp(
   """
 
   device = flow_origin_occupancy_logits.device
-
-  h = torch.arange(0, config.occupancy_flow_map.grid_size.y, dtype=torch.float32, device=device)
-  w = torch.arange(0, config.occupancy_flow_map.grid_size.x, dtype=torch.float32, device=device)
+  batch_size, occupancy_flow_map_height, occupancy_flow_map_width, num_waypoints, _ = pred_flow_logits.size()
+  h = torch.arange(0, occupancy_flow_map_height, dtype=torch.float32, device=device)
+  w = torch.arange(0, occupancy_flow_map_width, dtype=torch.float32, device=device)
   h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
   # These indices map each (x, y) location to (x, y).
   # [height, width, 2] but storing x, y coordinates.
@@ -298,11 +316,11 @@ def _flow_warp(
   )
 
   warped_flow_origins = []
-  for k in range(config.task_config.num_waypoints):
+  for k in range(num_waypoints):
     # [batch_size, height, width, 1]
     # [batch_size, height, width, 2]
-    pred_flow = pred_flow_logits[:,k]
-    flow_origin_occupancy = flow_origin_occupancy_logits[...,k][...,None]
+    pred_flow = pred_flow_logits[..., k, :]
+    flow_origin_occupancy = flow_origin_occupancy_logits[..., k, :]
     # Shifting the identity grid indices according to predicted flow tells us
     # the source (origin) grid cell for each flow vector.  We simply sample
     # occupancy values from these locations.

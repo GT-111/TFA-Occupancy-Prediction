@@ -88,7 +88,7 @@ class GridMap():
         # timestamp (num_of_agents, num_time_steps)
         timestamp_repeated = np.repeat(timestamp[..., None], num_points_per_vehicle, axis=2)
         timestamp_valid = (timestamp_repeated > 0)
-        vehicle_grids_valid = (vehicle_grids[...,0] < self.grid_size_width) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.grid_size_height) & (vehicle_grids[...,1] >= 0)
+        vehicle_grids_valid = (vehicle_grids[...,0] < self.occupancy_flow_map_width) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.occupancy_flow_map_height) & (vehicle_grids[...,1] >= 0)
         valid_agent_indices, valid_time_indices, valid_agent_points_indices = (np.where(timestamp_valid & vehicle_grids_valid))
         valid_agent_indices = valid_agent_indices.astype(np.int32)[..., np.newaxis]
         valid_time_indices = valid_time_indices.astype(np.int32)[..., np.newaxis]
@@ -116,8 +116,9 @@ class GridMap():
         # scatter_nd() accumulates values if there are repeated indices.  Since
         # we sample densely, this happens all the time.  Clip the final values.
         occupancy_map = np.clip(occupancy_map, 0.0, 1.0)
-        
-        return occupancy_map.unsqueeze(-1)
+        occupancy_map = np.expand_dims(occupancy_map, axis=-1)
+
+        return occupancy_map
 
     
     def get_flow(self, timestamp, vehicle_points, vehicle_grids):
@@ -131,7 +132,7 @@ class GridMap():
         timestamp_valid = (timestamp > 0) & (timestamp_shifted > 0)
         # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
         vehicle_grids = vehicle_grids[:, 1:,...]
-        vehicle_grids_valid = (vehicle_grids[...,0] < self.grid_size_width) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.grid_size_height) & (vehicle_grids[...,1] >= 0)
+        vehicle_grids_valid = (vehicle_grids[...,0] < self.occupancy_flow_map_width) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.occupancy_flow_map_height) & (vehicle_grids[...,1] >= 0)
         valid_agent_indices, valid_time_indices, valid_agent_points_indices = (np.where(timestamp_valid & vehicle_grids_valid))
         # cast the indices to int32
         valid_agent_indices = valid_agent_indices.astype(np.int32)[..., np.newaxis]

@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from pipline.dataset.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
 from configs.utils.config import load_config
-from utils.file_utils import get_files_with_extension
+from pipline.utils.file_utils import get_files_with_extension
 
 if __name__ == '__main__':
     dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
@@ -240,7 +240,7 @@ class I24MotionDatasetFile():
         observed_types = feature_dic['class'][observed_idx][:, None].repeat(num_time_steps, axis = 1)
         occluded_types = feature_dic['class'][~observed_idx][:, None].repeat(num_time_steps, axis = 1)
         # the vehicle class is concatenated to the end of the trajectory
-        
+    
         return observed_trajectories, occluded_trajectories, observed_types, occluded_types
     
 
@@ -275,7 +275,7 @@ class I24MotionDatasetFile():
         
         return output_dic
     
-    def process_idx(self, idx, cur_threshold_to_keep_num=20, adj_threshold_to_keep_num=10):
+    def process_idx(self, idx, cur_threshold_to_keep_num=10, adj_threshold_to_keep_num=10):
         
 
         # Get feature dictionaries and add occupancy and flow maps
@@ -312,10 +312,11 @@ class I24MotionDatasetPreprocessor():
     def process_file(self, data_file_path):
         data_file = I24MotionDatasetFile(data_file_path, dataset_config)
         num_scenes_to_process = min(data_file.max_idx, self.num_scenes_to_process_per_file)
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-            # Wrap tqdm around the executor to show progress
-            list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=num_scenes_to_process))
+        for idx in range(1000):
+            data_file.process_idx(idx)
+        # with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+        #     # Wrap tqdm around the executor to show progress
+        #     list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=num_scenes_to_process))
 
     def process_files(self,):
         data_files = get_files_with_extension(self.processed_data_path, '.parquet')

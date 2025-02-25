@@ -1,22 +1,30 @@
-from utils.file_utils import get_config, get_last_checkpoint
+from pipline.utils.file_utils import get_last_file_with_extension
 from configs.utils.config import load_config
-from utils.dataset_utils import get_dataloader, get_road_map, get_dataloader_ddp
+from utils.dataset_utils import get_dataloader, get_dataloader_ddp
+
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics import MeanMetric
 from tqdm import tqdm
-import utils.dataset_utils.I24Motion_utils.training_utils as training_utils
-from losses.occupancy_flow_loss import OGMFlow_loss
+
+
 import torch
 import os
-from metrics.occu_metrics import compute_occupancy_flow_metrics
-from models.OFMPNet import OFMPNet
-from metrics.metric import OGMFlowMetrics
+
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
 import warnings
 import argparse
+# import loss and metrics
+from pipline.losses.occupancy_flow_map_loss import OccupancyFlowMapLoss
+from pipline.losses.trajectory_loss import TrajectoryLoss
+from pipline.metrics.occupancy_flow_map_metrics import OccupancyFlowMapMetrics
+
+from pipline.utils.training_utils import load_checkpoint, save_checkpoint
+
+
+
 warnings.filterwarnings("ignore")
 ogm_weight  = 500
 occ_weight  = 1000
@@ -43,16 +51,17 @@ def setup(config, gpu_id):
     
     model = OFMPNet(config).to(gpu_id)
     model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
-    loss_fn = OGMFlow_loss(config=config, 
-                           ogm_weight=ogm_weight,
-                           occ_weight=occ_weight,
-                           flow_weight=flow_weight,
+    occupancy_flow_map_loss = OccupancyFlowMapLoss(
+                                                    device=gpu_id, ogm_weight=ogm_weight,
+                                                    occ_weight=occ_weight,
+                                                    flow_weight=flow_weight,
                            flow_origin_weight=flow_origin_weight,
                            replica=1.0,
                            no_use_warp=False,
                            use_pred=False,
                            use_focal_loss=True,
                            use_gt=False)
+    trajectory_loss = TrajectoryLoss(device=gpu_id, replica=1.0)
     
     optimizer = torch.optim.NAdam(params=model.parameters(), 
                                   lr=config.training_settings.optimizer.learning_rate,
@@ -62,30 +71,27 @@ def setup(config, gpu_id):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optimizer, 
                                                 step_size=config.training_settings.scheduler.step_size,
                                                 gamma=config.training_settings.scheduler.gamma) 
-    return model, loss_fn, optimizer, scheduler
+    return model, [occupancy_flow_map_loss, trajectory_loss], optimizer, scheduler
+
+
+import torch
+
 
 
 
 def model_training(gpu_id, world_size, config):
-    
+    proj_name = config.proj_name
+    exp_dir = config.exp_dir
+    proj_exp_dir = os.path.join(exp_dir, proj_name)
+    os.path.exists(proj_exp_dir) or os.makedirs(proj_exp_dir)
+
     ddp_setup(gpu_id, world_size)
     logger = SummaryWriter(log_dir=config.paths.logs)
     model, loss_fn, optimizer, scheduler = setup(config, gpu_id)
     train_dataloader, val_dataloader, _ = get_dataloader_ddp(config)
     global_step = 0
     
-    if get_last_checkpoint(config.paths.checkpoints) is not None:
-        
-        checkpoint = torch.load(get_last_checkpoint(config.paths.checkpoints))
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        continue_ep = checkpoint['epoch'] + 1
-        global_step = checkpoint['global_step']
-        if gpu_id == 0:
-            print(f'Continue_training...ep:{continue_ep+1}')
-    else:
-        continue_ep = 0
+    continue_ep, global_step = load_checkpoint(model, optimizer, scheduler, proj_exp_dir, gpu_id)
     
     
     
@@ -242,7 +248,7 @@ def model_training(gpu_id, world_size, config):
             
         if gpu_id == 0:
             if (epoch+1) % config.training_settings.checkpoint_interval == 0:
-                training_utils.save_checkpoint(model, optimizer, scheduler, epoch, config.paths.checkpoints, global_step)
+                save_checkpoint(model, optimizer, scheduler, epoch, config.paths.checkpoints, global_step)
     destroy_process_group()
 
 
@@ -256,16 +262,14 @@ def model_training(gpu_id, world_size, config):
 
 if __name__ == "__main__":
     # ============= Parse Argument =============
-    parser = argparse.ArgumentParser(description="options for dreamer project")
-    parser.add_argument("--config", type=str, default="configs/AROccFlowNetS.py", help="config file")
+    parser = argparse.ArgumentParser(description="options")
+    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetS.py", help="config file")
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)
-    # config = get_config('configs/config_12.yaml')
-    checkpoints_path = config.paths.checkpoints
-    os.path.exists(checkpoints_path) or os.makedirs(checkpoints_path)
+    
     # os.environ["NCCL_P2P_DISABLE"] = "1"
 
-    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-    world_size = torch.cuda.device_count()
-    mp.spawn(model_training, args=(world_size, config), nprocs=world_size)
+    # os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    # world_size = torch.cuda.device_count()
+    # mp.spawn(model_training, args=(world_size, config), nprocs=world_size)

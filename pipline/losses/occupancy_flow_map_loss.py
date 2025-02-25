@@ -63,7 +63,7 @@ class OccupancyFlowMapLoss(Loss):
         Returns:
             A dictionary of loss components.
         """
-        device = flow_origin_occupancy_logits.device
+        
 
         loss_dict = {'observed_occupancy_cross_entropy': [], 'occluded_occupancy_cross_entropy': [], 'flow_norm': [], 'flow_wrap_occupancy_cross_entropy': []}
         n_waypoints = self.config.task_config.num_waypoints
@@ -72,7 +72,7 @@ class OccupancyFlowMapLoss(Loss):
         h = torch.arange(0, self.config.occupancy_flow_map.grid_size.y, dtype=torch.float32)
         w = torch.arange(0, self.config.occupancy_flow_map.grid_size.x, dtype=torch.float32)
         h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
-        identity_indices = torch.stack((w_idx.T, h_idx.T), dim=-1).detach().to(device)
+        identity_indices = torch.stack((w_idx.T, h_idx.T), dim=-1).detach().to(self.device)
 
         # Iterate over each waypoint to calculate losses
         f_c = []  # Track flow correction factor

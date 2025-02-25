@@ -4,11 +4,12 @@ from torchmetrics import MeanMetric
 from pipline.templates.losses_template import Loss
 
 class TrajectoryLoss(Loss):
-    def __init__(self):
+    def __init__(self, device):
         
-        self.trajectory_regression_loss = MeanMetric()
-        self.trajectory_classification_loss = MeanMetric()
-    
+        self.device = device
+        self.trajectory_regression_loss = MeanMetric().to(self.device)
+        self.trajectory_classification_loss = MeanMetric().to(self.device)
+
     def update(self, loss_dict):
         """
         Update the loss metrics with the provided loss dictionary.

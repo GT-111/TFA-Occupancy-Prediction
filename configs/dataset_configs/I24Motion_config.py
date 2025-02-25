@@ -25,8 +25,8 @@ prediction_length = 400
 num_waypoints = 20
 
 # ============= Occupancy Flow Map Parameters =================
-occupancy_flow_map_height = 512
-occupancy_flow_map_width = 96
+occupancy_flow_map_height = 96  # y axis
+occupancy_flow_map_width = 512 # x axis
 vehicle_points_per_side_length = 36 # the number of points in the vehicle length direction
 vehicle_points_per_side_width = 12 # the number of points in the vehicle width direction
 spatial_window = 1400 # the size of the spatial window in feet

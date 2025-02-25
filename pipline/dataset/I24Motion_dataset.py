@@ -1,6 +1,6 @@
 import numpy as np
 from torch.utils.data import Dataset
-from utils.file_utils import get_files_with_extension
+from pipline.utils.file_utils import get_files_with_extension
 class I24MotionDataset(Dataset):
     def __init__(self, config):
         self.config = config

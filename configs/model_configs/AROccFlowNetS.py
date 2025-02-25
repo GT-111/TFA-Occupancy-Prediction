@@ -10,7 +10,6 @@ processed_data = './processed_data/'
 # checkpoints = "./checkpoints/"
 # logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
-project_dir = os.path.join(exp_dir, proj_name)
 
 # ============= Dataset Parameters=================
 dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
@@ -41,7 +40,8 @@ guidance_scale = 7.5
 weight_path = None  # None is the last ckpt you have trained
 # ============= Config ===================
 config = dict(
-    project_dir=project_dir,
+    proj_name=proj_name,
+    exp_dir=exp_dir,
     # launch=dict(
     #     gpu_ids=gpu_ids,
     #     num_machines=num_machines,
