@@ -18,3 +18,5 @@ class Loss():
         raise NotImplementedError("Reset method not implemented. Please implement it in the derived class.")
 
         return result_dic
+    def reset(self):
+        raise NotImplementedError("Reset method not implemented. Please implement it in the derived class.")

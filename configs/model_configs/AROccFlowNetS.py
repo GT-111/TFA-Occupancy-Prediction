@@ -1,12 +1,15 @@
+from random import shuffle
+
+from lark import logger
 from configs.utils.config import load_config
 import os
+
+from evaluation import losses
+from evaluation.losses import occupancy_flow_map_loss, trajectory_loss
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================
 proj_name = 'AROccFlowNetS'
-raw_data = './raw_data/'
-auxiliary_data = './auxiliary_data/'
-processed_data = './processed_data/'
 # checkpoints = "./checkpoints/"
 # logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
@@ -21,6 +24,9 @@ task_config = dataset_config.task
 num_his_points = task_config.num_his_points
 num_waypoints = task_config.num_waypoints
 
+paths_config = dataset_config.paths
+generated_data_path = paths_config.generated_data_path
+total_data_samples = 40000
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y
 hidden_dim = 64
@@ -42,44 +48,28 @@ weight_path = None  # None is the last ckpt you have trained
 config = dict(
     proj_name=proj_name,
     exp_dir=exp_dir,
-    # launch=dict(
-    #     gpu_ids=gpu_ids,
-    #     num_machines=num_machines,
-    #     distributed_type=distributed_type,
-    #     deepspeed_config=deepspeed_config,
-    # ),
     dataloaders=dict(
-        train_ratio = 0.8,
-        validation_ratio = 0.1,
-        test_ratio = 0.1,
+        datasets=dict(
+            train_ratio = 0.8,
+            validation_ratio = 0.1,
+            test_ratio = 0.1,
+            data_path=generated_data_path,
+            total_data_samples=1000,
+        ),
         train=dict(
-            # data_or_config=train_data,
-            # batch_size_per_gpu=batch_size_frame_per_gpu,
-            # num_workers=2,
-            # transform=dict(
-            #     type='DriveDreamerTransform',
-            #     dst_size=img_width,
-            #     mode='long',
-            #     pos_name=pos_name,
-            #     max_objs=max_objs_num,
-            #     random_choice=True,
-            #     default_prompt='a realistic driving scene.',
-            #     prompt_name='sd',
-            #     dd_name='image_hdmap',
-            #     is_train=True,
-            # ),
-            # sampler=dict(
-            #     type='NuscVideoSampler',
-            #     cam_num=num_cams,
-            #     frame_num=num_frames,
-            #     hz_factor=hz_factor,
-            #     video_split_rate=video_split_rate,
-            #     mv_video=mv_video,
-            #     view=view,
-            # ),
+            batch_size=batch_size,
+            num_workers=4,
+            shuffle=True,
+        ),
+        val=dict(
+            batch_size=batch_size,
+            num_workers=4,
+            shuffle=False,
         ),
         test=dict(
-
+            batch_size=1,
+            num_workers=1,
+            shuffle=False,
         ),
     ),
     models=dict(
@@ -124,6 +114,22 @@ config = dict(
         # with_ema=with_ema,
         # weight_path=weight_path,
     ),
+    losses=dict(
+        occupancy_flow_map_loss=dict(
+            ogm_weight  = 500,
+            occ_weight  = 1000,
+            flow_weight = 10,
+            flow_origin_weight = 1000,
+            replica=1.0,
+            no_use_warp=False,
+            use_pred=False,
+            use_focal_loss=True,
+            use_gt=False
+        ),
+        trajectory_loss=dict(
+
+        ),
+    ),
     optimizers=dict(
         type='NAdam',
         learning_rate = 0.0001,
@@ -143,5 +149,11 @@ config = dict(
     ),
     test=dict(
 
+    ),
+    loggers=dict(
+        tensorboard=dict(
+            name='Tensorboard',
+            log_dir=os.path.join(exp_dir, 'logs'),
+        ),
     ),
 )

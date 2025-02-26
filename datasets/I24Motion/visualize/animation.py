@@ -1,10 +1,10 @@
 from utils.file_utils import get_config
-from utils.dataset_utils.I24Motion_utils.occupancy_flow_map_utils import GridMap
-from pipline.dataset.I24Motion_dataset import I24Dataset
+from datasets.I24Motion.utils.occupancy_flow_map_utils import GridMap
+from datasets.I24Motion import I24Motion_dataset
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.colors import LinearSegmentedColormap
-from utils.dataset_utils import get_road_map
+# from utils.dataset_utils import get_road_map
 import flow_vis
 import numpy as np
 import typing
@@ -112,7 +112,7 @@ def get_cmap(colors):
 def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_flow=True, valid_dict=None, pred_dict=None, ground_truth=True):
     X, Y, history_data_dic, future_data_dic = process_data_for_visualization(config, data_dic, valid_dict=valid_dict, pred_dict=pred_dict, ground_truth=ground_truth)
 
-    road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
+    # road_map = get_road_map(config, batch_first=False).swapaxes(0,1)
     num_history_time_steps = history_data_dic['cur']['occupancy_map'].shape[0]
     num_future_time_steps = future_data_dic['cur']['occupancy_map'].shape[0]
     # Define the custom colormap: white from 0 to 0.5, then gradually red from 0.5 to 1
@@ -203,7 +203,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
             axes[1].set_title('Current Scene')
             axes[2].set_title('Next Scene')
         
-        img_road_map = axes[1].imshow(road_map)
+        # img_road_map = axes[1].imshow(road_map)
         
         
         if vis_optical_flow:
@@ -235,8 +235,8 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
                 quiver_cur = initialize_quiver(axes[1], data_dic['cur']['flow_map'][flow_frame,:,:,:], X, Y)
             if 'nxt' in valid_dict: 
                 quiver_nxt = initialize_quiver(axes[2], data_dic['nxt']['flow_map'][flow_frame,:,:,:], X, Y)
-        
-        return_list = [img_road_map]
+        return_list = []
+        # return_list = [img_road_map]
         if vis_flow:
             if 'prv' in valid_dict: 
                 return_list.extend([quiver_prv])
@@ -275,7 +275,7 @@ def visualize(config, data_dic, name, vis_occ=True, vis_flow=True, vis_optical_f
         name = name + '_optical_flow'
     ani.save(name + '.mp4', writer='ffmpeg', fps=2, dpi=300)
 
-from training.metrics.metrics_utils import sample
+from utils.occupancy_flow_map_utils import sample
 import torch
 
 def test_flow_wrap_occupancy(test_data, config, k):
@@ -328,7 +328,7 @@ def test_flow_wrap_occupancy(test_data, config, k):
 if __name__ == '__main__':
     config = get_config('configs/config_12.yaml')
     gridmap = GridMap(config)
-    dataset = I24Dataset(config)
+    dataset = I24Motion_dataset(config)
     k = 3
     name = "scene_419862"
     test_data = np.load(config.paths.processed_data + '/' + name + '.npy', allow_pickle=True).item()

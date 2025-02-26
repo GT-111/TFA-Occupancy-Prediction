@@ -1,10 +1,10 @@
 import torch
 import torch.nn.functional as F
 from torchmetrics import MeanMetric
-from pipline.templates.losses_template import Loss
+from evaluation.losses.losses_base import Loss
 
 class TrajectoryLoss(Loss):
-    def __init__(self, device):
+    def __init__(self, device, config):
         
         self.device = device
         self.trajectory_regression_loss = MeanMetric().to(self.device)
@@ -93,3 +93,10 @@ class TrajectoryLoss(Loss):
         }
         
         return loss_dict
+
+    def reset(self):
+        """
+        Reset the loss metrics.
+        """
+        self.trajectory_regression_loss.reset()
+        self.trajectory_classification_loss.reset()

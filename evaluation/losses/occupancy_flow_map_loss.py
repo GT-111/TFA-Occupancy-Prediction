@@ -5,19 +5,18 @@ import torch.nn.functional as F
 from torchmetrics import MeanMetric
 from utils.occupancy_flow_map_utils import sample
 from torchmetrics.functional.classification import binary_average_precision
-from pipline.templates.losses_template import Loss
+from evaluation.losses.losses_base import Loss
 
 class OccupancyFlowMapLoss(Loss):
     
-    def __init__(self, device, ogm_weight=1000.0, occ_weight=1000.0, flow_weight=1.0, flow_origin_weight=1000.0,
-                 replica=1.0, no_use_warp=False, use_pred=False, use_focal_loss=True, use_gt=False):
+    def __init__(self, device, config):
         """Initializes the loss module with weights and configuration options."""
 
         self.device = device
-        self.ogm_weight = ogm_weight  # Weight for observed occupancy loss
-        self.flow_weight = flow_weight  # Weight for flow loss
-        self.occ_weight = occ_weight  # Weight for occluded occupancy loss
-        self.replica = replica  # Scaling factor
+        self.ogm_weight = config.ogm_weight  # Weight for observed occupancy loss
+        self.flow_weight = config.flow_weight  # Weight for flow loss
+        self.occ_weight = config.occ_weight  # Weight for occluded occupancy loss
+        self.replica = config.replica  # Scaling factor
 
         # Loss functions
         self.focal_loss = partial(sigmoid_focal_loss, from_logits=True)
@@ -26,11 +25,11 @@ class OccupancyFlowMapLoss(Loss):
         self.bce = batch_binary_cross_entropy
 
         # Flags for optional behaviors
-        self.no_use_warp = no_use_warp
-        self.use_focal_loss = use_focal_loss
-        self.use_pred = use_pred
-        self.flow_origin_weight = flow_origin_weight
-        self.use_gt = use_gt
+        self.no_use_warp = config.no_use_warp
+        self.use_focal_loss = config.use_focal_loss
+        self.use_pred = config.use_pred
+        self.flow_origin_weight = config.flow_origin_weight
+        self.use_gt = config.use_gt
 
         self.observed_occupancy_cross_entropy = MeanMetric().to(self.device)
         self.occluded_occupancy_cross_entropy = MeanMetric().to(self.device)
@@ -154,6 +153,13 @@ class OccupancyFlowMapLoss(Loss):
         # Clear the loss dictionary
         
         return result_dict
+    def reset(self):
+        """Resets the loss metrics."""
+        self.observed_occupancy_cross_entropy.reset()
+        self.occluded_occupancy_cross_entropy.reset()
+        self.flow_norm.reset()
+        self.flow_wrap_occupancy_cross_entropy.reset()
+    
     # Utility function to flatten tensors
     def _batch_flatten(self, input_tensor: torch.Tensor) -> torch.Tensor:
         return torch.reshape(input_tensor, [input_tensor.size(0), -1])

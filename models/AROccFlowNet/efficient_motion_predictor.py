@@ -29,7 +29,7 @@ class MotionEncoder(nn.Module):
         self.agent_type__learnable_embeddings = nn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=hidden_dim)
         self.agent_type__learnable_embeddings.weight.data = nn.init.xavier_uniform_(self.agent_type__learnable_embeddings.weight.data)
         
-        # TODO: Add the positional encoding
+        #
 
         
     def forward(self, agent_states, agent_types):
@@ -51,7 +51,7 @@ class MotionEncoder(nn.Module):
         return agent_embeddings
 
 
-# TODO: Test the MotionDecoder
+
 class MotionDecoder(nn.Module):
     def __init__(self, hidden_dim, num_heads, dropout_prob=0.1, num_motion_mode=6, num_time_steps=20):
         super().__init__()
@@ -96,6 +96,7 @@ class MotionPredictor(nn.Module):
         self.decoder = MotionDecoder(hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_motion_mode=self.num_motion_mode, num_time_steps=self.num_time_steps)
     
     def forward(self, agent_states, agent_types):
+        # //TODO: Modify the pipline to take valid_mask
         agent_embeddings = self.encoder(agent_states, agent_types)
         trajs, scores, context = self.decoder(agent_embeddings)
         return trajs, scores, context, agent_embeddings

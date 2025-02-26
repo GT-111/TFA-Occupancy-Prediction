@@ -2,10 +2,9 @@ from sklearn import metrics
 import torch
 from typing import List
 from torchmetrics import MeanMetric
-from pipline.templates.metrics_template import Metrics
+from evaluation.metrics.metrics_base import Metrics
 from torchmetrics.functional.classification import binary_average_precision
-from pipline.utils.occupancy_flow_map_utils import sample, _mean
-
+from utils.occupancy_flow_map_utils import sample, _mean
 class OccupancyFlowMapMetrics(Metrics):
     def __init__(self, device, no_warp=False):
         # super().__init__()

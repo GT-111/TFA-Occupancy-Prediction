@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from timm.models.convnext import convnext_small, convnext_tiny
 from configs.utils.config import load_config
-from pipline.dataset.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
+from datasets.I24Motion.utils.generate_test_data import SampleModelInput
 
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""

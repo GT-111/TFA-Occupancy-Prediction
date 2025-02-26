@@ -1,9 +1,9 @@
 import torch
 import numpy as np
-from pipline.dataset.I24Motion_dataset import I24MotionDataset
+from datasets.I24Motion.I24Motion_dataset import I24MotionDataset
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-
+from typing import DefaultDict
 
 
 import torch
@@ -64,61 +64,50 @@ def merge_batch_by_padding_0nd_dim(tensor_list, return_pad_mask=False):
 def process_batch(batch_list):
     key_to_list = {}
     batch_size = len(batch_list)
-    map_keys = [
-            'his/occluded_occupancy_map', 
-            'pred/occluded_occupancy_map', 
-            'his/observed_occupancy_map', 
-            'pred/observed_occupancy_map', 
-            'his/flow_map', 
-            'pred/flow_map', 
-            'his/observed_trajectories', 
-            'pred/observed_trajectories', 
-            'his/occluded_trajectories', 
-            'pred/occluded_trajectories', 
-            'flow_origin_occupancy_map'
-            ]
+    occupancy_flow_map_keys = [
+        # 'his/occluded_occupancy_map', 
+        'pred/occluded_occupancy_map', 
+        'his/observed_occupancy_map', 
+        'pred/observed_occupancy_map', 
+        'his/flow_map', 
+        'pred/flow_map', 
+        'flow_origin_occupancy_map'
+    ]
     trajectory_keys = [            
-                    
-                    ]
-    meta_array_keys = []
-    # for scene_key in ['prv', 'cur', 'nxt']:
-    # for scene_key in ['cur']:
-    #     for key in meta_scalar:
-    #         key = f'{scene_key}/meta/{key}'
-    #         meta_scalar_keys.append(key)
-    #     for key in meta_array:
-    #         key = f'{scene_key}/meta/{key}'
-    #         meta_array_keys.append(key)
-    #     for key in state:
-    #         his_key = f'{scene_key}/state/his/{key}'
-    #         pred_key = f'{scene_key}/state/pred/{key}'
-    #         state_keys.extend([his_key, pred_key])
-    # for key in meta_scalar_keys:
-    #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    # for key in meta_array_keys:
-    #     key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    for key in map_keys:
+        'his/observed_agent_features', 
+        'pred/observed_agent_features', 
+        # 'his/occluded_agent_features', 
+        # 'pred/occluded_agent_features', 
+        # 'his/trajectories',
+        'pred/trajectories',
+        'his/valid_mask',
+        'pred/valid_mask',
+    ]
+    meta_scalar_keys = ['agent_types']
+    
+    for key in occupancy_flow_map_keys:
         key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     for key in trajectory_keys:
         key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
     
-    input_dict = {}
-    for key, val_list in key_to_list.items():
-        if key in map_keys:
-            
-            val_list = [torch.from_numpy(x) for x in val_list]
-            input_dict[key] = merge_batch_by_padding_0nd_dim(val_list)
-        # elif key in meta_scalar_keys:
-        #     # chec if value list are zero-dimensional arrays
-        #     if not isinstance(val_list[0], np.ndarray):
-                
-        #         input_dict[key] = torch.tensor(val_list)
-        #     else:   
-        #         input_dict[key] = np.concatenate(val_list, axis=0)
-        else:
-            
+    input_dict = DefaultDict(dict)
+    for scene_key in ['prv', 'cur', 'nxt']:
+        for key, val_list in key_to_list.items():
+            if key in occupancy_flow_map_keys:
                 val_list = [torch.from_numpy(x) for x in val_list]
-                input_dict[key] = torch.cat(val_list, dim=0)
+                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim(val_list)
+
+            elif key in trajectory_keys:
+                val_list = [torch.from_numpy(x) for x in val_list]
+                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim(val_list)
+            
+            elif key in meta_scalar_keys:
+                # check if value list are zero-dimensional arrays
+                if not isinstance(val_list[0], np.ndarray):
+                    input_dict[key] = torch.tensor(val_list)
+                else:   
+                    input_dict[key] = np.concatenate(val_list, axis=0)
+            
     return input_dict
 
 def collate_fn(batch_list):
@@ -130,11 +119,11 @@ def get_dataset(config):
     dataset = I24MotionDataset(config)
     return dataset
 
-def get_train_val_test_dataset(dataset, config):
+def get_train_val_test_dataset(dataset, datasets_config):
     
-    train_ratio = config.dataset_splits.train_ratio
-    val_ratio = config.dataset_splits.validation_ratio
-    test_ratio = config.dataset_splits.test_ratio
+    train_ratio = datasets_config.train_ratio
+    val_ratio = datasets_config.validation_ratio
+    test_ratio = datasets_config.test_ratio
     
     train_size = int(len(dataset) * train_ratio)
     val_size = int(len(dataset) * val_ratio)
@@ -144,30 +133,38 @@ def get_train_val_test_dataset(dataset, config):
     
     return train_dataset, val_dataset, test_dataset
 
-def get_dataloader_ddp(config):
+def get_dataloader_ddp(dataloaders_config):
+    datasets_config = dataloaders_config.datasets
+    train_loader_config = dataloaders_config.train
+    val_loader_config = dataloaders_config.val
+    test_loader_config = dataloaders_config.test
+    dataset = get_dataset(datasets_config)
+    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, datasets_config)
     
-    dataset = get_dataset(config)
-    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
-    
-    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
-    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
-    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=config.dataloader_config.shuffle, drop_last=True), batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+
+    train_dataloader = DataLoader(train_dataset, sampler=DistributedSampler(train_dataset, shuffle=train_loader_config.shuffle, drop_last=True), batch_size=train_loader_config.batch_size, collate_fn=collate_fn, num_workers=train_loader_config.num_workers)
+    val_dataloader = DataLoader(val_dataset, sampler=DistributedSampler(val_dataset, shuffle=val_loader_config.shuffle, drop_last=True), batch_size=val_loader_config.batch_size, collate_fn=collate_fn, num_workers=val_loader_config.num_workers)
+    test_dataloader = DataLoader(test_dataset, sampler=DistributedSampler(test_dataset, shuffle=test_loader_config.shuffle, drop_last=True), batch_size=test_loader_config.batch_size, collate_fn=collate_fn, num_workers=test_loader_config.num_workers)
     
     return train_dataloader, val_dataloader, test_dataloader
 
-def get_dataloader(config):
+def get_dataloader(dataloaders_config):
     
-    dataset = get_dataset(config)
-    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, config)
+    datasets_config = dataloaders_config.datasets
+    train_loader_config = dataloaders_config.train
+    val_loader_config = dataloaders_config.val
+    test_loader_config = dataloaders_config.test
+    dataset = get_dataset(datasets_config)
+    train_dataset, val_dataset, test_dataset = get_train_val_test_dataset(dataset, datasets_config)
     
-    train_dataloader = DataLoader(train_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
-    val_dataloader = DataLoader(val_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
-    test_dataloader = DataLoader(test_dataset, shuffle=config.dataloader_config.shuffle, batch_size=config.dataloader_config.batch_size, collate_fn=collate_fn, num_workers=config.dataloader_config.num_workers)
+    train_dataloader = DataLoader(train_dataset, shuffle=train_loader_config.shuffle, batch_size=train_loader_config.batch_size, collate_fn=collate_fn, num_workers=train_loader_config.num_workers)
+    val_dataloader = DataLoader(val_dataset, shuffle=val_loader_config.shuffle, batch_size=val_loader_config.batch_size, collate_fn=collate_fn, num_workers=val_loader_config.num_workers)
+    test_dataloader = DataLoader(test_dataset, shuffle=test_loader_config.shuffle, batch_size=test_loader_config.batch_size, collate_fn=collate_fn, num_workers=test_loader_config.num_workers)
     
     return train_dataloader, val_dataloader, test_dataloader
 
 
-
+@ DeprecationWarning
 def get_road_map(config, batch_size = None, batch_first=True):
 
     grid_size_x = config.occupancy_flow_map.grid_size.x

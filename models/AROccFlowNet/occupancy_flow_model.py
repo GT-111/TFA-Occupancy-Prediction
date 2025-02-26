@@ -7,7 +7,7 @@ from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.convnext_encoder import ConvNeXtUNet
 from models.AROccFlowNet.conv_lstm import ConvLSTM
 from models.AROccFlowNet.positional_encoding import positional_encoding
-from pipline.dataset.dataset_utils.I24Motion_utils.generate_test_data import SampleModelInput
+from datasets.I24Motion.utils.generate_test_data import SampleModelInput
 
 class AROccFlowNet(nn.Module):
 
@@ -34,12 +34,13 @@ class AROccFlowNet(nn.Module):
         self.occupancy_decoder = nn.Linear(in_features=self.hidden_dim, out_features=1)
 
     def forward(self, input_data_dic):
+        # //TODO: Modity the input to take his_occupancy_map, his_flow_map, his_observed_agent_features, his_valid_mask, agent_types
         cur_agent_states = input_data_dic['cur/his/agent_states']
         cur_agent_types = input_data_dic['cur/his/agent_types']
         cur_predicted_trajs, cur_predicted_traj_scores, cur_context, cur_agent_embeddings = self.motion_predictor(cur_agent_states, cur_agent_types)
         cur_occupancy_map = input_data_dic['cur/his/occupancy_map']
         cur_flow_map = input_data_dic['cur/his/flow_map']
-        # TODO: Add the adjacent scene joint_feature
+        # //TODO: Add the adjacent scene joint_feature
         cur_joint_feature = self.multi_scale_feature_map_encoder(cur_occupancy_map, cur_flow_map)
         
         batch_size, num_agents, num_motion_mode, num_time_steps, _ = cur_predicted_trajs.size()
