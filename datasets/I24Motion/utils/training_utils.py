@@ -8,14 +8,14 @@ def parse_data(data_dic, gpu_id, config):
     input_dict = DefaultDict(dict)
     ground_truth_dict = DefaultDict(dict)
     input_keys = [
-            # 'his/occluded_occupancy_map', 
-            'his/observed_occupancy_map', 
-            'his/flow_map', 
-            'flow_origin_occupancy_map'
-            'his/observed_agent_features', 
-            'his/valid_mask',
-            'agent_types', 
-            ]
+        # 'his/occluded_occupancy_map', 
+        'his/observed_occupancy_map', 
+        'his/flow_map', 
+        'flow_origin_occupancy_map',
+        'his/observed_agent_features', 
+        'his/valid_mask',
+        'agent_types', 
+    ]
     groundtruth_keys = [
         'pred/occluded_occupancy_map', 
         'pred/observed_occupancy_map', 
@@ -41,15 +41,11 @@ def parse_data(data_dic, gpu_id, config):
     return input_dict, ground_truth_dict
 
 
-# TODO: make the output to pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_score
+
 def parse_outputs(outputs, num_waypoints):
     """
     Parse model outputs
     """
-    B, T, W, H, C = outputs.shape
-    pred_observed_occupancy_logits = outputs[:, :, :, :, :1].reshape(B, num_waypoints, W, H, 1)
-    pred_occluded_occupancy_logits = outputs[:, :, :, :, 1:2].reshape(B, num_waypoints, W, H, 1)
-    pred_flow_logits = outputs[:, :, :, :, 2:].reshape(B, num_waypoints, W, H, 2)
+    raise NotImplementedError
     
-    return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits
 

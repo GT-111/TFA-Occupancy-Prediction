@@ -234,8 +234,8 @@ class I24MotionDatasetFile():
         vector_features_occluded = np.stack([feature_dic[feature][~observed_idx][:, None].repeat(num_time_steps, axis = 1) for feature in vector_features_list], axis = -1)
         node_features_observed = np.stack([feature_dic[feature][observed_idx] for feature in node_features_list], axis = -1)
         node_features_occluded = np.stack([feature_dic[feature][~observed_idx] for feature in node_features_list], axis = -1)
-        observed_trajectories = np.concatenate([node_features_observed, vector_features_observed], axis = -1)
-        occluded_trajectories = np.concatenate([node_features_occluded, vector_features_occluded], axis = -1)
+        observed_agent_features = np.concatenate([node_features_observed, vector_features_observed], axis = -1)
+        occluded_agent_features = np.concatenate([node_features_occluded, vector_features_occluded], axis = -1)
 
         observed_types = feature_dic['class'][observed_idx]
         occluded_types = feature_dic['class'][~observed_idx]
@@ -244,18 +244,18 @@ class I24MotionDatasetFile():
         valid_mask = feature_dic['timestamp'][observed_idx] > 0
         # the vehicle class is concatenated to the end of the trajectory
     
-        return observed_trajectories, occluded_trajectories, observed_types, occluded_types, trajectories, valid_mask
+        return observed_agent_features, occluded_agent_features, observed_types, occluded_types, trajectories, valid_mask
     
 
     def get_output_dic(self, feature_dic):
 
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic)
-        observed_trajectories, occluded_trajectories, agent_types, _, trajectories, valid_mask= self.get_trajectories(feature_dic)
+        observed_agent_features, occluded_agent_features, agent_types, _, trajectories, valid_mask= self.get_trajectories(feature_dic)
         result_dic = {
             'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
             'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
             'flow_map': flow_map, # H,W,(T-1),2
-            'observed_agent_features': observed_trajectories, # (Nobs, T, D)
+            'observed_agent_features': observed_agent_features, # (Nobs, T, D)
             # 'occluded_agent_features': occluded_agent_features, # (Nocc, T, D)
             'agent_types': agent_types,
         }

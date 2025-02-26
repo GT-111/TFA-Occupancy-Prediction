@@ -32,13 +32,15 @@ class MotionEncoder(nn.Module):
         #
 
         
-    def forward(self, agent_states, agent_types):
+    def forward(self, agent_states, agent_types, valid_mask):
         """
         agent_states: torch.tesor (batch_size, num_agents, num_timesteps, num_states) 
         agent_types: torch.tensor (batch_size, num_agents)
+        valid_mask: torch.tensor (batch_size, num_agents, num_timesteps)
         """
         batch_size, num_agents, num_timesteps, num_states = agent_states.size()
         agent_embeddings = self.agent_projection(agent_states) # (batch_size, num_agents, num_timesteps, hidden_dim)
+        agent_embeddings = agent_embeddings * valid_mask.unsqueeze(-1)
         agent_embeddings = einops.rearrange(agent_embeddings, 'b a t h -> (b a) t h')
 
         agent_embeddings = self.temporal_attention.forward(agent_embeddings)
@@ -95,10 +97,16 @@ class MotionPredictor(nn.Module):
         self.encoder = MotionEncoder(num_states=self.num_states, hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_layers=self.num_layers)
         self.decoder = MotionDecoder(hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_motion_mode=self.num_motion_mode, num_time_steps=self.num_time_steps)
     
-    def forward(self, agent_states, agent_types):
-        # //TODO: Modify the pipline to take valid_mask
-        agent_embeddings = self.encoder(agent_states, agent_types)
+    def forward(self, agent_states, agent_types, valid_mask):
+        """
+        agent_states: torch.tesor (batch_size, num_agents, num_timesteps, num_states) 
+        agent_types: torch.tensor (batch_size, num_agents)
+        valid_mask: torch.tensor (batch_size, num_agents, num_timesteps)
+        """
+
+        agent_embeddings = self.encoder(agent_states, agent_types, valid_mask) # (batch_size, num_agents, hidden_dim)
         trajs, scores, context = self.decoder(agent_embeddings)
+        
         return trajs, scores, context, agent_embeddings
     
 
