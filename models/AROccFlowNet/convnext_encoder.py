@@ -110,7 +110,7 @@ class ConvNeXtUNet(nn.Module):
             flow_map: Flow map input (B, H, W, T, C)
 
         """
-        fearture_map = torch.cat([occupancy_map, flow_map], dim=-1)
+        fearture_map = torch.cat([occupancy_map[..., 1:, :], flow_map], dim=-1)
         fearture_map = rearrange(fearture_map, "b h w t c -> b t c h w")  # (B, T, C, H, W)
         B, T, C, H, W = fearture_map.shape
 

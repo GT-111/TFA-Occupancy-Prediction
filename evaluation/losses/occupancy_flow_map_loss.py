@@ -57,7 +57,7 @@ class OccupancyFlowMapLoss(Loss):
             gt_occluded_occupancy_logits: Ground truth occluded occupancy [B, H, W, T ,1].
             gt_flow_logits: Ground truth flow [B, H, W, T ,2].
             flow_origin_occupancy_logits: Flow origin occupancy logits.
-            gt_mask: Ground truth mask to indicate valid regions.
+            gt_mask: Ground truth mask to indicate valid timesteps. [B, T]
 
         Returns:
             A dictionary of loss components.
@@ -65,11 +65,11 @@ class OccupancyFlowMapLoss(Loss):
         
 
         loss_dict = {'observed_occupancy_cross_entropy': [], 'occluded_occupancy_cross_entropy': [], 'flow_norm': [], 'flow_wrap_occupancy_cross_entropy': []}
-        n_waypoints = self.config.task_config.num_waypoints
+        batch_size, occupancy_flow_map_height, occupancy_flow_map_width, n_waypoints,_ = gt_flow_logits.shape
 
         # Generate identity indices for warping operations
-        h = torch.arange(0, self.config.occupancy_flow_map.grid_size.y, dtype=torch.float32)
-        w = torch.arange(0, self.config.occupancy_flow_map.grid_size.x, dtype=torch.float32)
+        h = torch.arange(0, occupancy_flow_map_height, dtype=torch.float32)
+        w = torch.arange(0, occupancy_flow_map_width, dtype=torch.float32)
         h_idx, w_idx = torch.meshgrid(h, w, indexing="xy")
         identity_indices = torch.stack((w_idx.T, h_idx.T), dim=-1).detach().to(self.device)
 
@@ -81,13 +81,12 @@ class OccupancyFlowMapLoss(Loss):
             pred_occluded_occupancy = pred_occluded_occupancy_logits[..., k, :]
             pred_flow = pred_flow_logits[..., k, :]
 
-            true_observed_occupancy = gt_observed_occupancy_logits[..., k]
-            true_occluded_occupancy = gt_occluded_occupancy_logits[..., k]
+            true_observed_occupancy = gt_observed_occupancy_logits[..., k, :]
+            true_occluded_occupancy = gt_occluded_occupancy_logits[..., k, :]
             true_flow = gt_flow_logits[..., k, :]
 
-            flow_origin_occupancy = flow_origin_occupancy_logits[..., k][..., None]
-            mask = gt_mask[..., k]
-
+            flow_origin_occupancy = flow_origin_occupancy_logits[..., k, :]
+            mask = gt_mask[..., k].view(-1, 1, 1, 1)
             # Calculate observed occupancy loss
             loss_dict['observed_occupancy_cross_entropy'].append(
                 self._sigmoid_xe_loss(true_observed_occupancy * mask, pred_observed_occupancy * mask, self.ogm_weight))
@@ -109,7 +108,7 @@ class OccupancyFlowMapLoss(Loss):
                 res = 1.0
 
             f_c.append(res)
-            loss_dict['flow_norm'].append((k + 1) * res * self._flow_loss(true_flow * mask.unsqueeze(-1), pred_flow * mask.unsqueeze(-1)))
+            loss_dict['flow_norm'].append((k + 1) * res * self._flow_loss(true_flow * mask, pred_flow * mask))
 
             # Warp loss
             if not self.no_use_warp:
@@ -164,28 +163,139 @@ class OccupancyFlowMapLoss(Loss):
     def _batch_flatten(self, input_tensor: torch.Tensor) -> torch.Tensor:
         return torch.reshape(input_tensor, [input_tensor.size(0), -1])
 
-    # Sigmoid cross-entropy loss for observed occupancy
-    def _sigmoid_xe_loss(self, true_occupancy, pred_occupancy, loss_weight):
+    def _sigmoid_xe_loss(
+        self,
+        true_occupancy: torch.Tensor,
+        pred_occupancy: torch.Tensor,
+        loss_weight: float = 1000,
+    ) -> torch.Tensor:
+        """Computes sigmoid cross-entropy loss over all grid cells."""
+        # Since the mean over per-pixel cross-entropy values can get very small,
+        # we compute the sum and multiply it by the loss weight before computing
+        # the mean.
         if self.use_focal_loss:
-            xe_sum = torch.sum(self.focal_loss(targets=self._batch_flatten(true_occupancy), inputs=self._batch_flatten(pred_occupancy)))
+            xe_sum = torch.sum(
+                self.focal_loss(
+                    targets=self._batch_flatten(true_occupancy),
+                    inputs=self._batch_flatten(pred_occupancy)
+                )) + torch.sum(
+            F.binary_cross_entropy_with_logits(
+                target=self._batch_flatten(true_occupancy),
+                input=self._batch_flatten(pred_occupancy),
+                reduction="none"
+            ))
         else:
-            xe_sum = torch.sum(F.binary_cross_entropy_with_logits(target=self._batch_flatten(true_occupancy), input=self._batch_flatten(pred_occupancy), reduction="none"))
-        return loss_weight * xe_sum / (torch.numel(pred_occupancy) * self.replica)
+            xe_sum = torch.sum(
+            F.binary_cross_entropy_with_logits(
+                target=self._batch_flatten(true_occupancy),
+                input=self._batch_flatten(pred_occupancy),
+                reduction="none"
+            ))
+        # Return mean.
+        return loss_weight * xe_sum / (torch.numel(pred_occupancy)*self.replica)
+    
+    def _sigmoid_occ_loss(
+        self,
+        true_occupancy: torch.Tensor,
+        pred_occupancy: torch.Tensor,
+        loss_weight: float = 1000,
+    ) -> torch.Tensor:
+        """Computes sigmoid cross-entropy loss over all grid cells."""
+        # Since the mean over per-pixel cross-entropy values can get very small,
+        # we compute the sum and multiply it by the loss weight before computing
+        # the mean.
+        if self.use_focal_loss:
+            xe_sum = torch.sum(
+                self.occlude_focal_loss(
+                    targets=self._batch_flatten(true_occupancy),
+                    inputs=self._batch_flatten(pred_occupancy)
+                )) +torch.sum(
+            F.binary_cross_entropy_with_logits(
+                target=self._batch_flatten(true_occupancy),
+                input=self._batch_flatten(pred_occupancy),
+                reduction="none"
+            ))
+        else:
+            xe_sum = torch.sum(
+            F.binary_cross_entropy_with_logits(
+                target=self._batch_flatten(true_occupancy),
+                input=self._batch_flatten(pred_occupancy),
+                reduction="none"
+            ))
+        # Return mean.
+        return loss_weight * xe_sum / (torch.numel(pred_occupancy)*self.replica)
+    
+    def _sigmoid_xe_warp_loss(
+        self,
+        true_occupancy: torch.Tensor,
+        pred_occupancy_obs: torch.Tensor,
+        pred_occupancy_occ: torch.Tensor,
+        warped_origin: torch.Tensor,
+        loss_weight: float = 1000,
+    ) -> torch.Tensor:
+        labels=self._batch_flatten(true_occupancy)
+        sig_logits = self._batch_flatten(torch.sigmoid(pred_occupancy_obs)+ torch.sigmoid(pred_occupancy_occ))
+        sig_logits = torch.clamp(sig_logits,0,1)
+        joint_flow_occ_logits = sig_logits * self._batch_flatten(warped_origin)
+        # joint_flow_occ_logits = tf.clip_by_value(joint_flow_occ_logits,0,1)
+        if self.use_focal_loss:
+            joint_flow_occ_logits = torch.clamp(joint_flow_occ_logits,1e-7,1 - 1e-7) # for numerical stability
+            xe_sum = torch.sum(self.flow_focal_loss(targets=labels,inputs=joint_flow_occ_logits)) + torch.sum(self.bce(input=joint_flow_occ_logits, target=labels))
+        else:
+            xe_sum =torch.sum(F.binary_cross_entropy_with_logits(target=labels,input=joint_flow_occ_logits, reduction="none"))
 
-    # Sigmoid cross-entropy loss for occluded occupancy
-    def _sigmoid_occ_loss(self, true_occupancy, pred_occupancy, loss_weight):
+        # Return mean.
+        return loss_weight * xe_sum / (torch.numel(true_occupancy)*self.replica)
+    
+    def _sigmoid_xe_warp_loss_pred(
+        self,
+        true_occupancy: torch.Tensor,
+        pred_occupancy_obs: torch.Tensor,
+        pred_occupancy_occ: torch.Tensor,
+        warped_origin: torch.Tensor,
+        loss_weight: float = 1000,
+    ) -> torch.Tensor:
+        labels=self._batch_flatten(true_occupancy)
+        sig_logits = self._batch_flatten(torch.sigmoid(pred_occupancy_obs)+torch.sigmoid(pred_occupancy_occ))
+        sig_logits = torch.clip_by_value(sig_logits,0,1)
+        joint_flow_occ_logits =  self._batch_flatten(warped_origin)*sig_logits
         if self.use_focal_loss:
-            xe_sum = torch.sum(self.occlude_focal_loss(targets=self._batch_flatten(true_occupancy), inputs=self._batch_flatten(pred_occupancy)))
+            xe_sum = torch.sum(self.flow_focal_loss(targets=labels,inputs=joint_flow_occ_logits)) + torch.sum(self.bce(target=labels,input=joint_flow_occ_logits))
         else:
-            xe_sum = torch.sum(F.binary_cross_entropy_with_logits(target=self._batch_flatten(true_occupancy), input=self._batch_flatten(pred_occupancy), reduction="none"))
-        return loss_weight * xe_sum / (torch.numel(pred_occupancy) * self.replica)
+            xe_sum =torch.sum(F.binary_cross_entropy_with_logits(target=labels,input=joint_flow_occ_logits,reduction="none"))
+        xe_sum = torch.sum(self.bce(target=labels,input=joint_flow_occ_logits) )
+
+        # Return mean.
+        return loss_weight * xe_sum / (torch.numel(true_occupancy)*self.replica)
 
     # Flow loss based on L1 norm
-    def _flow_loss(self, true_flow, pred_flow, loss_weight=1):
-        diff = (true_flow - pred_flow) * (torch.logical_or(true_flow[..., 0] != 0.0, true_flow[..., 1] != 0.0).float())
-        diff_norm_sum = torch.sum(torch.linalg.norm(diff, ord=1, dim=-1))
-        flow_exists_sum = torch.sum(diff != 0) * self.replica / 2
-        mean_diff = diff_norm_sum / flow_exists_sum if flow_exists_sum else 0
+    def _flow_loss(
+        self, 
+        true_flow: torch.Tensor, 
+        pred_flow: torch.Tensor, 
+        loss_weight: float = 1,
+    ) -> torch.Tensor:
+        
+        """Computes L1 flow loss."""
+        diff = true_flow - pred_flow
+        # Ignore predictions in areas where ground-truth flow is zero.
+        # [batch_size, height, width, 1], [batch_size, height, width, 1]
+        true_flow_dx, true_flow_dy = torch.chunk(true_flow, 2, dim=-1)
+
+        # [batch_size, height, width, 1]
+        flow_exists = torch.logical_or(
+            torch.not_equal(true_flow_dx, 0.0),
+            torch.not_equal(true_flow_dy, 0.0),
+        )
+        flow_exists = flow_exists.to(torch.float32)
+        diff = diff * flow_exists
+        diff_norm = torch.linalg.norm(diff, ord=1, dim=-1)  # L1 norm.
+        diff_norm_sum = torch.sum(diff_norm)
+        flow_exists_sum = torch.sum(flow_exists) * self.replica / 2 # / 2 since (dx, dy) is counted twice.
+        if torch.is_nonzero(flow_exists_sum):
+            mean_diff = torch.div(diff_norm_sum, flow_exists_sum)
+        else:
+            mean_diff = 0
         return loss_weight * mean_diff
     
 # Sigmoid focal loss function with optional alpha and gamma parameters.

@@ -8,7 +8,7 @@ from typing import DefaultDict
 
 import torch
 
-def merge_batch_by_padding_0nd_dim(tensor_list, return_pad_mask=False):
+def merge_batch_by_padding_0nd_dim_ndarray(tensor_list, return_pad_mask=False):
     # Determine the dimensions of the tensors
     tensor_shape_len = len(tensor_list[0].shape)
     if tensor_shape_len not in [2, 3]:
@@ -61,8 +61,46 @@ def merge_batch_by_padding_0nd_dim(tensor_list, return_pad_mask=False):
         return ret_tensor
 
 
+def merge_batch_by_padding_0nd_dim_array(tensor_list, return_pad_mask=False):
+    # Determine the dimensions of the tensors
+    tensor_shape_len = len(tensor_list[0].shape)
+    assert tensor_shape_len in [1]
+
+    # Calculate the maximum length along the second dimension
+    maxt_feat0 = max([x.shape[0] for x in tensor_list])
+    
+
+    # Initialize lists to store padded tensors and mask tensors
+    ret_tensor_list = []
+    ret_mask_list = []
+
+    # Pad tensors and generate masks
+    for k in range(len(tensor_list)):
+        cur_tensor = tensor_list[k]
+
+        # Create a new tensor with the maximum shape and copy the current tensor into it
+        new_tensor = cur_tensor.new_zeros(maxt_feat0)
+        new_tensor[:cur_tensor.shape[0], ...] = cur_tensor
+        # new_tensor = new_tensor[None,]
+        ret_tensor_list.append(new_tensor)
+        # Create a mask tensor indicating the padded regions
+        new_mask_tensor = cur_tensor.new_zeros(maxt_feat0)
+        new_mask_tensor[:cur_tensor.shape[0]] = 1
+        ret_mask_list.append(new_mask_tensor.bool())
+        
+    # Concatenate the padded tensors and masks along the batch dimension
+    ret_tensor = torch.stack(ret_tensor_list, dim=0)  # (num_stacked_samples, maxt_feat0, num_feat1, num_feat2)
+    ret_mask = torch.stack(ret_mask_list, dim=0)
+    
+
+    if return_pad_mask:
+        return ret_tensor, ret_mask
+    else:
+        return ret_tensor
+
+
 def process_batch(batch_list):
-    key_to_list = {}
+    key_to_list_all = DefaultDict(dict)
     batch_size = len(batch_list)
     occupancy_flow_map_keys = [
         # 'his/occluded_occupancy_map', 
@@ -84,29 +122,37 @@ def process_batch(batch_list):
         'pred/valid_mask',
     ]
     meta_scalar_keys = ['agent_types']
-    
-    for key in occupancy_flow_map_keys:
-        key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    for key in trajectory_keys:
-        key_to_list[key] = [batch_list[bs_idx][key] for bs_idx in range(batch_size)]
-    
+
+    for scene_key in ['prv', 'cur', 'nxt']:
+        for key in occupancy_flow_map_keys:
+            key_to_list_all[scene_key][key] = [batch_list[bs_idx][scene_key][key] for bs_idx in range(batch_size)]
+
+        for key in trajectory_keys:
+            key_to_list_all[scene_key][key] = [batch_list[bs_idx][scene_key][key] for bs_idx in range(batch_size)]
+
+        for key in meta_scalar_keys:
+            key_to_list_all[scene_key][key] = [batch_list[bs_idx][scene_key][key] for bs_idx in range(batch_size)]
+            
     input_dict = DefaultDict(dict)
     for scene_key in ['prv', 'cur', 'nxt']:
+        key_to_list = key_to_list_all[scene_key]
         for key, val_list in key_to_list.items():
             if key in occupancy_flow_map_keys:
                 val_list = [torch.from_numpy(x) for x in val_list]
-                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim(val_list)
+                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim_ndarray(val_list)
 
             elif key in trajectory_keys:
                 val_list = [torch.from_numpy(x) for x in val_list]
-                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim(val_list)
+                input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim_ndarray(val_list)
             
             elif key in meta_scalar_keys:
+                
                 # check if value list are zero-dimensional arrays
                 if not isinstance(val_list[0], np.ndarray):
-                    input_dict[key] = torch.tensor(val_list)
+                    input_dict[scene_key][key] = torch.tensor(val_list)
                 else:   
-                    input_dict[key] = np.concatenate(val_list, axis=0)
+                    val_list = [torch.from_numpy(x) for x in val_list]
+                    input_dict[scene_key][key] = merge_batch_by_padding_0nd_dim_array(val_list)
             
     return input_dict
 

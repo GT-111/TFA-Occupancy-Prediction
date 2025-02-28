@@ -26,7 +26,7 @@ class AROccFlowNet(nn.Module):
         self.nhead = config.nhead
         self.num_layers = config.num_layers
         self.transformer_decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(d_model=self.hidden_dim, nhead=self.nhead, batch_first=True),
+            nn.TransformerDecoderLayer(d_model=self.hidden_dim, nhead=self.nhead, batch_first=True, norm_first=True),
             num_layers=self.num_layers
         )
         # self.upsample = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)

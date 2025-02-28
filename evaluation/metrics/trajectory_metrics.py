@@ -27,7 +27,6 @@ class TrajectoryMetrics(Metrics):
         min_ade = self.compute_min_ade(predicted_trajectories, groundtruth_trajectories, valid_mask)
         min_fed = self.compute_min_fde(predicted_trajectories, groundtruth_trajectories, valid_mask)
         metrics_dict = {
-            'trajectories_min_mse': min_mse,
             'trajectories_min_ade': min_ade,
             'trajectories_min_fde': min_fed,
         }
@@ -36,20 +35,17 @@ class TrajectoryMetrics(Metrics):
     
     def update(self, metrics_dict):
 
-        self.min_mse.update(metrics_dict['trajectories_min_mse'])
         self.min_ade.update(metrics_dict['trajectories_min_ade'])
         self.min_fde.update(metrics_dict['trajectories_min_fde'])
 
     def reset(self):
 
-        self.min_mse.reset()
         self.min_ade.reset()
         self.min_fde.reset()
 
     def get_result(self):
 
         res_dict = {}
-        res_dict['trajectories_min_mse'] = self.min_mse.compute()
         res_dict['trajectories_min_ade'] = self.min_ade.compute()
         res_dict['trajectories_min_fde'] = self.min_fde.compute()
         self.reset()
@@ -117,7 +113,7 @@ class TrajectoryMetrics(Metrics):
         :return errs, inds: errors and indices for modes with min error, shape [batch_size, num_agents]
         """
 
-        mse_values = self.mse(traj, traj_gt, masks)  # [batch_size, num_agents, num_modes]
+        mse_values = self.compute_mse(traj, traj_gt, masks)  # [batch_size, num_agents, num_modes]
         err, inds = torch.min(mse_values, dim=2)  # Get min MSE along num_modes
 
         return err, inds  # Shape: [batch_size, num_agents]
@@ -162,20 +158,26 @@ class TrajectoryMetrics(Metrics):
         num_modes = traj.shape[2]
         batch_size, num_agents, _, seq_len, _ = traj.shape
 
-        # Find last valid index for each agent
-        last_valid_idx = torch.sum(1 - masks, dim=2) - 1  # Shape: [batch_size, num_agents]
+        # Find the last valid index for each agent
+        last_valid_idx = (torch.sum(1 - masks, dim=2) - 1).long()  # Shape: [batch_size, num_agents]
+        last_valid_idx = torch.clamp(last_valid_idx, min=0, max=seq_len - 1)
 
         # Gather final predicted positions across all modes
         final_preds = traj[
-            torch.arange(batch_size).unsqueeze(1).unsqueeze(2),  # Batch index
-            torch.arange(num_agents).unsqueeze(0).unsqueeze(2),  # Agent index
-            torch.arange(num_modes).unsqueeze(0).unsqueeze(1),  # Mode index
-            last_valid_idx.unsqueeze(2),  # Last valid timestep index
+            torch.arange(batch_size).view(-1, 1, 1),  # Batch index
+            torch.arange(num_agents).view(1, -1, 1),  # Agent index
+            torch.arange(num_modes).view(1, 1, -1),  # Mode index
+            last_valid_idx[:, :, None],  # Last valid timestep index
             :2  # Only take x, y
         ]  # Shape: [batch_size, num_agents, num_modes, 2]
 
         # Gather final ground truth positions
-        final_gt = traj_gt[torch.arange(batch_size).unsqueeze(1), torch.arange(num_agents).unsqueeze(0), last_valid_idx, :2]  # Shape: [batch_size, num_agents, 2]
+        final_gt = traj_gt[
+            torch.arange(batch_size)[:, None],  # Batch index
+            torch.arange(num_agents)[None, :],  # Agent index
+            last_valid_idx,  # Last valid timestep index
+            :2  # Only take x, y
+        ]  # Shape: [batch_size, num_agents, 2]
 
         # Compute Euclidean distance
         err = torch.norm(final_preds - final_gt.unsqueeze(2), dim=3)  # Shape: [batch_size, num_agents, num_modes]

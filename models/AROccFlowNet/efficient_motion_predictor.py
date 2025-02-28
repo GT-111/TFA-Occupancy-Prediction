@@ -25,7 +25,7 @@ class MotionEncoder(nn.Module):
         # 4 : semi
         # 5 : truck
         self.agent_projection = nn.Linear(in_features=self.num_states, out_features=hidden_dim)
-        self.temporal_attention = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=self.hidden_dim, nhead=self.num_heads, dropout=self.dropout_prob, batch_first=True), num_layers=self.num_layers)
+        self.temporal_attention = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=self.hidden_dim, nhead=self.num_heads, dropout=self.dropout_prob, batch_first=True, norm_first=True), num_layers=self.num_layers)
         self.agent_type__learnable_embeddings = nn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=hidden_dim)
         self.agent_type__learnable_embeddings.weight.data = nn.init.xavier_uniform_(self.agent_type__learnable_embeddings.weight.data)
         
@@ -47,6 +47,8 @@ class MotionEncoder(nn.Module):
         agent_embeddings = einops.reduce(agent_embeddings, 'b t h -> b h', 'max')
         agent_embeddings = einops.rearrange(agent_embeddings, '(b a) h -> b a h', a=num_agents)
 
+        # agent_types: (batch_size, num_agents) to Long Tensor  
+        agent_types = agent_types.long()
         agent_type_embedings = self.agent_type__learnable_embeddings(agent_types) # (batch_size, num_agents, hidden_dim)
         agent_embeddings = agent_embeddings + agent_type_embedings
 
@@ -60,19 +62,19 @@ class MotionDecoder(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_motion_mode = num_motion_mode
         self.num_time_steps = num_time_steps
-        self.learnale_motion_query = nn.Parameter(torch.zeros(num_motion_mode, hidden_dim)) # (num_motion_mode, hidden_dim) (K, D)
+        self.learnale_motion_query = nn.Parameter(torch.randn(num_motion_mode, hidden_dim)) # (num_motion_mode, hidden_dim) (K, D)
         self.cross_attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout_prob, batch_first=True)
         self.trajs_projection = nn.Linear(in_features=hidden_dim, out_features=2 * self.num_time_steps)
         self.score_projection = nn.Linear(in_features=hidden_dim, out_features=1)
-
+        self.layer_norm = nn.LayerNorm(hidden_dim)
     def forward(self, agent_embeddings):
         batch_size, num_agents, _ = agent_embeddings.size()
         query = self.learnale_motion_query
-        query = einops.repeat(query, 'k d -> (b n) k d', b=batch_size, n=num_agents)
-        agent_embeddings = einops.rearrange(agent_embeddings, 'b n d -> (b n) d', b=batch_size, n=num_agents)
+        query = einops.repeat(query, 'k d -> (b a) k d', b=batch_size, a=num_agents)
+        agent_embeddings = einops.rearrange(agent_embeddings, 'b a d -> (b a) d', b=batch_size, a=num_agents)
         agent_embeddings = einops.repeat(agent_embeddings, 'n d -> n k d', k=self.num_motion_mode)
-        key = agent_embeddings
-        value = agent_embeddings
+        key = self.layer_norm(agent_embeddings)
+        value = self.layer_norm(agent_embeddings)
         # mask the agent with other batch
         mask = torch.zeros(batch_size, num_agents, self.num_motion_mode, num_agents)
         context, _ = self.cross_attention.forward(query=query, key=key, value=value)

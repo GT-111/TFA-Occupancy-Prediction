@@ -132,11 +132,11 @@ def compute_occupancy_flow_metrics(
   for k in range(num_waypoints):
     pred_observed_occupancy = pred_observed_occupancy_logits[..., k, :]
     pred_occluded_occupancy = pred_occluded_occupancy_logits[..., k, :]
-    pred_flow = pred_flow_logits[:,k]
+    pred_flow = pred_flow_logits[..., k, :]
     true_observed_occupancy = gt_observed_occupancy_logits[..., k, :]
     true_occluded_occupancy = gt_occluded_occupancy_logits[..., k, :]
-    true_flow = gt_flow_logits[...,k,:]
-    mask = gt_mask[..., k]
+    true_flow = gt_flow_logits[...,k, :]
+    mask = gt_mask[..., k].view(-1, 1, 1, 1)
     # adding this CAUSE DISTRIBUTE ERROR!!!!
     # has_true_observed_occupancy[k] = tf.reduce_max(true_observed_occupancy) > 0
     # has_true_occluded_occupancy[k] = tf.reduce_max(true_occluded_occupancy) > 0
@@ -147,18 +147,18 @@ def compute_occupancy_flow_metrics(
 
     # Compute occupancy metrics.
     if True:#:has_true_observed_occupancy[k]:
-      metrics_dict['vehicles_observed_auc'].append(
+      metrics_dict['vehicles_observed_occupancy_auc'].append(
           _compute_occupancy_auc(true_observed_occupancy * mask,
                                 pred_observed_occupancy * mask))
-      metrics_dict['vehicles_observed_iou'].append(
+      metrics_dict['vehicles_observed_occupancy_iou'].append(
         _compute_occupancy_soft_iou(true_observed_occupancy * mask,
                                     pred_observed_occupancy * mask))
     if True:#has_true_occluded_occupancy[k]:                       
-      metrics_dict['vehicles_occluded_auc'].append(
+      metrics_dict['vehicles_occluded_occupancy_auc'].append(
           _compute_occupancy_auc(true_occluded_occupancy * mask,
                                 pred_occluded_occupancy * mask))
       
-      metrics_dict['vehicles_occluded_iou'].append(
+      metrics_dict['vehicles_occluded_occupancy_iou'].append(
           _compute_occupancy_soft_iou(true_occluded_occupancy * mask,
                                       pred_occluded_occupancy * mask))
       

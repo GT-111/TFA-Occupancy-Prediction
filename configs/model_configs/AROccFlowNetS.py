@@ -1,4 +1,5 @@
 from random import shuffle
+from tabnanny import check
 
 from lark import logger
 from configs.utils.config import load_config
@@ -9,11 +10,11 @@ from evaluation.losses import occupancy_flow_map_loss, trajectory_loss
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================
-proj_name = 'AROccFlowNetS'
+project_name = 'AROccFlowNetS'
 # checkpoints = "./checkpoints/"
 # logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
-
+project_dir = os.path.join(exp_dir, project_name)
 # ============= Dataset Parameters=================
 dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
 occupancy_flow_map_config = dataset_config.occupancy_flow_map
@@ -30,7 +31,7 @@ total_data_samples = 40000
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y
 hidden_dim = 64
-num_states = 10# TODO: Define the number of states
+num_states = 9# TODO: Define the number of states
 num_heads = 4
 dropout_prob=0.1
 num_motion_mode=6 # number of future motion modes
@@ -46,8 +47,8 @@ guidance_scale = 7.5
 weight_path = None  # None is the last ckpt you have trained
 # ============= Config ===================
 config = dict(
-    proj_name=proj_name,
-    exp_dir=exp_dir,
+    project_name=project_name,
+    project_dir=project_dir,
     dataloaders=dict(
         datasets=dict(
             train_ratio = 0.8,
@@ -58,7 +59,7 @@ config = dict(
         ),
         train=dict(
             batch_size=batch_size,
-            num_workers=4,
+            num_workers=1,
             shuffle=True,
         ),
         val=dict(
@@ -95,7 +96,7 @@ config = dict(
                 in_chans=input_dim,
                 out_channels=hidden_dim,
                 embed_dims=[96, 192, 384, 768],
-                temporal_depth=num_his_points,
+                temporal_depth=num_his_points - 1,
             ),
             motionpredictor=dict(
                 num_states=num_states,
@@ -116,10 +117,10 @@ config = dict(
     ),
     losses=dict(
         occupancy_flow_map_loss=dict(
-            ogm_weight  = 500,
-            occ_weight  = 1000,
+            ogm_weight  = 200,
+            occ_weight  = 200,
             flow_weight = 10,
-            flow_origin_weight = 1000,
+            flow_origin_weight = 500,
             replica=1.0,
             no_use_warp=False,
             use_pred=False,
@@ -127,7 +128,8 @@ config = dict(
             use_gt=False
         ),
         trajectory_loss=dict(
-
+            regression_weight=200,
+            classification_weight=1.0
         ),
     ),
     optimizers=dict(
@@ -136,15 +138,15 @@ config = dict(
         weight_decay = 0.0001
     ),
     schedulers=dict(
-        name='StepLR',
+        type='StepLR',
         step_size = 3,
         gamma = 0.5
     ),
     train=dict(
         max_epochs=max_epochs,
         checkpoint_interval=1,
+        checkpoint_dir=os.path.join(project_dir, 'checkpoints'),
         checkpoint_total_limit=10,
-        log_with='tensorboard',
         log_interval=100,
     ),
     test=dict(
@@ -152,8 +154,8 @@ config = dict(
     ),
     loggers=dict(
         tensorboard=dict(
-            name='Tensorboard',
-            log_dir=os.path.join(exp_dir, 'logs'),
+            type='Tensorboard',
+            log_dir=os.path.join(project_dir, 'logs'),
         ),
     ),
 )

@@ -1,8 +1,7 @@
-import tensorboard
 from configs.utils.config import load_config
 from torch.utils.tensorboard import SummaryWriter
-from torchmetrics import MeanMetric
 from tqdm import tqdm
+import time
 import torch
 import os
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -33,28 +32,29 @@ def ddp_setup(rank, world_size):
     os.environ["MASTER_PORT"] = "12355"
     init_process_group(backend="nccl", init_method="env://", rank=rank, world_size=world_size)
 
-def setup(config, gpu_id, ddp=True):
+def setup(config, gpu_id, enable_ddp=True):
     """
     Setup the model, optimizer, scheduler, and losses.
     """
+    # //[ ] The model config need to be updated if the model is changed
     model_config = config.models
-    model = AROccFlowNet(model_config).to(gpu_id)
-    if ddp:
+    model = AROccFlowNet(model_config.aroccflownet).to(gpu_id)
+    if enable_ddp:
         model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
 
     # Load the optimizer
     optimizer_config = config.optimizers
     optimizer_type = optimizer_config.type
 
-    if optimizer_type == "Adam":
-        optimizer = torch.optim.Adam(
+    if optimizer_type == "NAdam":
+        optimizer = torch.optim.NAdam(
             params=model.parameters(), 
             lr=optimizer_config.learning_rate,
             weight_decay=optimizer_config.weight_decay
         )
         
     # Load the scheduler
-    schedulers_config = config.training_settings.scheduler
+    schedulers_config = config.schedulers
     schedulers_type = schedulers_config.type
     if schedulers_type == "StepLR":
         scheduler = torch.optim.lr_scheduler.StepLR(
@@ -73,14 +73,21 @@ def setup(config, gpu_id, ddp=True):
 
     return model, optimizer, scheduler, occupancy_flow_map_loss, trajectory_loss
 
-def model_training(gpu_id, world_size, config, ddp=True):
-
-    proj_name = config.proj_name
-    exp_dir = config.exp_dir
-    proj_exp_dir = os.path.join(exp_dir, proj_name)
+def model_training(gpu_id, world_size, config, enable_ddp=True):
+    
+    project_dir = config.project_dir
     dataloaders_config = config.dataloaders
-    os.path.exists(proj_exp_dir) or os.makedirs(proj_exp_dir)
-    if ddp:
+    os.path.exists(project_dir) or os.makedirs(project_dir)
+
+    train_config = config.train
+    checkpoint_dir = train_config.checkpoint_dir
+    max_epochs = train_config.max_epochs
+    checkpoint_interval = train_config.checkpoint_interval
+    checkpoint_total_limit = train_config.checkpoint_total_limit
+    log_interval = train_config.log_interval
+    torch.autograd.set_detect_anomaly(True)
+    
+    if enable_ddp:
         ddp_setup(gpu_id, world_size)
         train_dataloader, val_dataloader, _ = get_dataloader_ddp(dataloaders_config)
     else:
@@ -90,26 +97,29 @@ def model_training(gpu_id, world_size, config, ddp=True):
     tensorboard_config = logger_config.tensorboard
     logger = SummaryWriter(log_dir=tensorboard_config.log_dir)
 
-    model, optimizer, scheduler, occupancy_flow_map_loss, trajectory_loss = setup(config, gpu_id)
-    continue_ep, global_step = load_checkpoint(model, optimizer, scheduler, proj_exp_dir, gpu_id)
+    model, optimizer, scheduler, occupancy_flow_map_loss, trajectory_loss = setup(config, gpu_id, enable_ddp=enable_ddp)
+    continue_ep, global_step = load_checkpoint(model, optimizer, scheduler, checkpoint_dir, gpu_id)
     
 
-    for epoch in range(config.training_settings.epochs):
+    for epoch in range(continue_ep, max_epochs):
         if epoch<continue_ep:
             if gpu_id == 0:
-                print("\nskip epoch {}/{}".format(epoch+1, config.training_settings.epochs))
+                print("\nskip epoch {}/{}".format(epoch + 1, max_epochs))
             continue
         
         model.train()
-        
-        
-        train_dataloader.sampler.set_epoch(epoch)
+        # //NOTE In distributed mode, calling the set_epoch method at the beginning of each epoch before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs. Otherwise, the same ordering will be always used.
+        if enable_ddp:
+            train_dataloader.sampler.set_epoch(epoch)
+
         loop = tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, data in loop:
-            
+
             input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
             # //[ ]Currently, only the current scene is being used
             input_dict = input_dict['cur']
+            ground_truth_dict = ground_truth_dict['cur']
+
             # get the input
             his_occupancy_map = input_dict['his/observed_occupancy_map']
             his_flow_map = input_dict['his/flow_map']
@@ -124,9 +134,10 @@ def model_training(gpu_id, world_size, config, ddp=True):
             gt_flow = ground_truth_dict['pred/flow_map']
             gt_trajectories = ground_truth_dict['pred/trajectories']
             gt_valid_mask = ground_truth_dict['pred/valid_mask']
-            
-            
+            gt_occupancy_flow_map_mask = torch.sum(gt_valid_mask, dim=-2) > 0
+
             outputs = model.forward(his_occupancy_map, his_flow_map, his_observed_agent_features, agent_types, his_valid_mask)
+            pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_score = parse_outputs(outputs, train=True)
 
             occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(
                 pred_observed_occupancy_logits, 
@@ -135,15 +146,24 @@ def model_training(gpu_id, world_size, config, ddp=True):
                 gt_observed_occupancy_logits, 
                 gt_occluded_occupancy_logits, 
                 gt_flow, 
-                flow_origin_occupancy
+                flow_origin_occupancy,
+                gt_occupancy_flow_map_mask,
             )
-            trajectory_loss_dict = trajectory_loss.compute(predicted_trajectories, predicted_trajectories_score, gt_trajectories, gt_valid_mask)
+
+            trajectory_loss_dict = trajectory_loss.compute(
+                predicted_trajectories, 
+                predicted_trajectories_score, 
+                gt_trajectories, 
+                gt_valid_mask
+            )
+
             # TODO: merge the occupancy_flow_map_loss and trajectory_loss
             loss_value = torch.sum(sum(occupancy_flow_map_loss_dict.values()))
 
             # backward pass
             optimizer.zero_grad()
             loss_value.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             optimizer.step()
             
             occupancy_flow_map_loss.update(occupancy_flow_map_loss_dict)
@@ -154,18 +174,21 @@ def model_training(gpu_id, world_size, config, ddp=True):
             trajectory_loss_res_dict = trajectory_loss.get_result()
 
             if gpu_id == 0:
-                if batch_idx % 20 == 0:
+                if batch_idx % log_interval == 0:
                     logger.add_scalars(main_tag="occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)  
                     logger.add_scalars(main_tag="trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
+            break
         scheduler.step()
         
         ## validate
         
         occupancy_flow_map_loss.reset()
         trajectory_loss.reset()
-        valid_metrics = OccupancyFlowMapMetrics(gpu_id, no_warp=False)
+        occupancy_flow_map_metrics = OccupancyFlowMapMetrics(gpu_id, no_warp=False)
+        trajectory_metrics = TrajectoryMetrics(gpu_id)
+        
         # TODO: Add the trajectory metrics
-
+        torch.cuda.empty_cache()
         model.eval()
         
         with torch.no_grad():
@@ -173,7 +196,9 @@ def model_training(gpu_id, world_size, config, ddp=True):
             for batch_idx, data in loop:
                 
                 input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
-
+                # //[ ]Currently, only the current scene is being used
+                input_dict = input_dict['cur']
+                ground_truth_dict = ground_truth_dict['cur']
                 # get the input
                 his_occupancy_map = input_dict['his/observed_occupancy_map']
                 his_flow_map = input_dict['his/flow_map']
@@ -188,39 +213,67 @@ def model_training(gpu_id, world_size, config, ddp=True):
                 gt_flow = ground_truth_dict['pred/flow_map']
                 gt_trajectories = ground_truth_dict['pred/trajectories']
                 gt_valid_mask = ground_truth_dict['pred/valid_mask']
+                gt_occupancy_flow_map_mask = torch.sum(gt_valid_mask, dim=-2) > 0
 
-                outputs = model(his_occupancy_map, his_flow_map, his_observed_agent_features, his_valid_mask, agent_types)
-                pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_score = parse_outputs(outputs, config.task_config.num_waypoints)
-
-                
-                occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy)
-                trajectory_loss_dict = trajectory_loss.compute(predicted_trajectories, predicted_trajectories_score, gt_trajectories, gt_valid_mask)
-                # TODO: merge the occupancy_flow_map_loss and trajectory_loss
-                loss_value = torch.sum(sum(occupancy_flow_map_loss_dict.values()))
-                
+                outputs = model.forward(his_occupancy_map, his_flow_map, his_observed_agent_features, agent_types, his_valid_mask)
+                pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_score = parse_outputs(outputs, train=False)
 
                 
-                pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
-                pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
-                
-                occupancy_flow_map_metrics_dict = valid_metrics.compute(pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow, flow_origin_occupancy, no_warp=False)
-                # //[ ] Add the trajectory metrics
-                trajectory_metrics_dict = trajectory_metrics.compute(predicted_trajectories, predicted_trajectories_score, gt_trajectories, gt_valid_mask)
-                valid_metrics.update(occupancy_flow_map_metrics_dict)
+                occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(
+                    pred_observed_occupancy_logits, 
+                    pred_occluded_occupancy_logits, 
+                    pred_flow_logits, 
+                    gt_observed_occupancy_logits, 
+                    gt_occluded_occupancy_logits, 
+                    gt_flow, 
+                    flow_origin_occupancy,
+                    gt_occupancy_flow_map_mask,
+                )
+
+                trajectory_loss_dict = trajectory_loss.compute(
+                    predicted_trajectories, 
+                    predicted_trajectories_score, 
+                    gt_trajectories, 
+                    gt_valid_mask
+                )
+
+                occupancy_flow_map_metrics_dict = occupancy_flow_map_metrics.compute(
+                    pred_observed_occupancy_logits, 
+                    pred_occluded_occupancy_logits, 
+                    pred_flow_logits, 
+                    gt_observed_occupancy_logits, 
+                    gt_occluded_occupancy_logits, 
+                    gt_flow, 
+                    flow_origin_occupancy, 
+                    gt_occupancy_flow_map_mask,
+                )
+
+                trajectory_metrics_dict = trajectory_metrics.compute(
+                    predicted_trajectories, 
+                    gt_trajectories, 
+                    gt_valid_mask
+                )
+
+                occupancy_flow_map_metrics_dict.update(occupancy_flow_map_metrics_dict)
+                trajectory_metrics_dict.update(trajectory_metrics_dict)
+
                 occupancy_flow_map_loss_dict.update(occupancy_flow_map_loss_dict)
                 trajectory_loss_dict.update(trajectory_loss_dict)
 
             occupancy_flow_map_loss_res_dict = occupancy_flow_map_loss.get_result()
             trajectory_loss_res_dict = trajectory_loss.get_result()
-            val_res_dict = valid_metrics.get_result()
+            occupancy_flow_map_metrics_res_dict = occupancy_flow_map_metrics.get_result()
+            trajectory_metrics_res_dict = trajectory_metrics.get_result()
             if gpu_id == 0:
-                logger.add_scalars(main_tag="val_occupancy_flow_map_metrics", tag_scalar_dict=val_res_dict, global_step=global_step)
-                logger.add_scalars(main_tag="val_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)
-                logger.add_scalars(main_tag="val_trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
+                if batch_idx % log_interval == 0:
+                    logger.add_scalars(main_tag="val_occupancy_flow_map_metrics", tag_scalar_dict=occupancy_flow_map_metrics_res_dict, global_step=global_step)
+                    logger.add_scalars(main_tag="val_trajectory_metrics", tag_scalar_dict=trajectory_metrics_res_dict, global_step=global_step)
+                    logger.add_scalars(main_tag="val_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)
+                    logger.add_scalars(main_tag="val_trajectory_trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
             
         if gpu_id == 0:
-            if (epoch+1) % config.training_settings.checkpoint_interval == 0:
-                save_checkpoint(model, optimizer, scheduler, epoch, config.paths.checkpoints, global_step)
+            if (epoch+1) % checkpoint_interval == 0:
+                save_checkpoint(model, optimizer, scheduler, epoch, global_step, checkpoint_dir, checkpoint_total_limit)
     destroy_process_group()
 
 
@@ -239,9 +292,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)
-    model_training(0, 1, config, ddp=False)
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+    # TORCH_USE_CUDA_DSA
+    os.environ['TORCH_USE_CUDA'] = "1"
+    model_training(0, 1, config, enable_ddp=False)
     # os.environ["NCCL_P2P_DISABLE"] = "1"
-
+    
     # os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     # world_size = torch.cuda.device_count()
     # mp.spawn(model_training, args=(world_size, config), nprocs=world_size)

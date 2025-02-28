@@ -26,13 +26,13 @@ def parse_data(data_dic, gpu_id, config):
     for scene_key in ['prv', 'cur', 'nxt']:
     
         for key in input_keys:
-            data = data_dic[key].to(gpu_id, dtype=torch.float32)
+            data = data_dic[scene_key][key].to(gpu_id, dtype=torch.float32)
             if torch.isnan(data).any():
                 data = torch.where(torch.isnan(data), torch.zeros_like(data), data)
             input_dict[scene_key][key] = data
 
         for key in groundtruth_keys:
-            data = data_dic[key].to(gpu_id, dtype=torch.float32)
+            data = data_dic[scene_key][key].to(gpu_id, dtype=torch.float32)
             if torch.isnan(data).any():
                 data = torch.where(torch.isnan(data), torch.zeros_like(data), data)
             ground_truth_dict[scene_key][key] = data
@@ -42,10 +42,20 @@ def parse_data(data_dic, gpu_id, config):
 
 
 
-def parse_outputs(outputs, num_waypoints):
+def parse_outputs(outputs, train):
     """
     Parse model outputs
     """
-    raise NotImplementedError
+    pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores = outputs
+    if train:
+        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores
+    
+    else:
+        pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
+        pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
+
+        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores
+    
+    
     
 

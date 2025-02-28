@@ -2,20 +2,28 @@ import os
 import torch
 from utils.file_utils import get_last_file_with_extension
 
-def save_checkpoint(model, optimizer, scheduler, epoch, proj_exp_dir, global_step):
+def save_checkpoint(model, optimizer, scheduler, epoch, global_step, checkpoint_dir, checkpoint_total_limit):
     """
     Save model checkpoint
     """
+    os.path.exists(checkpoint_dir) or os.makedirs(checkpoint_dir)
+
     torch.save({
         'epoch': epoch,
         'global_step': global_step,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
-    }, os.path.join(proj_exp_dir + f'/epoch_{epoch+1}.pth'))
+    }, os.path.join(checkpoint_dir + f'/epoch_{epoch+1}.pth'))
 
-
-def load_checkpoint(model, optimizer, scheduler, proj_exp_dir, gpu_id):
+    # Remove old checkpoints if the total number of checkpoints exceeds the limit
+    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pth')]
+    if len(checkpoint_files) > checkpoint_total_limit:
+        checkpoint_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+        os.remove(os.path.join(checkpoint_dir, checkpoint_files[0]))
+    print(f'Checkpoint saved at {checkpoint_dir + f"/epoch_{epoch+1}.pth"}')
+    
+def load_checkpoint(model, optimizer, scheduler, checkpoint_dir, gpu_id):
     """
     Loads the latest checkpoint if available and updates the model, optimizer, and scheduler.
 
@@ -30,7 +38,7 @@ def load_checkpoint(model, optimizer, scheduler, proj_exp_dir, gpu_id):
         continue_ep: The next epoch to continue training from.
         global_step: The global step loaded from the checkpoint.
     """
-    checkpoint_path = get_last_file_with_extension(proj_exp_dir, '.pth')
+    checkpoint_path = get_last_file_with_extension(checkpoint_dir, '.pth')
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path)
         model.load_state_dict(checkpoint['model_state_dict'])

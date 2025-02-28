@@ -2,14 +2,15 @@ import torch
 import torch.nn.functional as F
 from torchmetrics import MeanMetric
 from evaluation.losses.losses_base import Loss
-
+import einops
 class TrajectoryLoss(Loss):
     def __init__(self, device, config):
         
         self.device = device
         self.trajectory_regression_loss = MeanMetric().to(self.device)
         self.trajectory_classification_loss = MeanMetric().to(self.device)
-
+        self.regression_weight = config.regression_weight
+        self.classification_weight = config.classification_weight
     def update(self, loss_dict):
         """
         Update the loss metrics with the provided loss dictionary.
@@ -51,13 +52,13 @@ class TrajectoryLoss(Loss):
                                T=time stamps, 2=(x,y).
             pred_scores: Tensor of shape [B, A, M] with predicted scores for each mode.
             gt_trajectories: Tensor of shape [B, A, T, 2] with ground truth trajectories.
-            gt_mask: Tensor of shape [B, A] indicating valid agents (1 for valid, 0 for invalid).
+            gt_mask: Tensor of shape [B, A, T] indicating valid agents (1 for valid, 0 for invalid).
 
         Returns:
             loss_dict: Dictionary containing total loss, regression loss, and classification loss.
         """
         B, A, M, T, _ = pred_trajectories.shape
-
+        gt_mask = gt_mask.view(B, A, T, 1)
         # Expand ground truth trajectories to allow broadcasting against modes.
         gt_traj_exp = gt_trajectories.unsqueeze(2)
         
@@ -71,25 +72,26 @@ class TrajectoryLoss(Loss):
         best_mode_idx = torch.argmin(avg_error, dim=-1)
         
         # Gather the best predicted trajectory for each agent.
-        best_mode_idx_expanded = best_mode_idx.unsqueeze(-1).unsqueeze(-1).expand(B, A, 1, T, 2)
+        best_mode_idx_expanded = einops.repeat(best_mode_idx, 'b a -> b a 1 t 2', t = T)
+
         pred_best = torch.gather(pred_trajectories, dim=2, index=best_mode_idx_expanded).squeeze(2)
         
         # -------------------- Regression Loss --------------------
         reg_loss_per_agent = F.smooth_l1_loss(pred_best, gt_trajectories, reduction='none')
-        reg_loss_per_agent = reg_loss_per_agent.mean(dim=[2, 3])
-        reg_loss = (reg_loss_per_agent * gt_mask).sum() / (gt_mask.sum() + 1e-6)
+        reg_loss_per_agent = reg_loss_per_agent * gt_mask
+        reg_loss_per_agent = einops.reduce(reg_loss_per_agent, 'b a t 2 -> b a', 'mean')
+        reg_loss = (reg_loss_per_agent).sum()
         
         # ------------------ Classification Loss ------------------
         pred_scores_flat = pred_scores.view(-1, M)
         best_mode_labels = best_mode_idx.view(-1)
-        gt_mask_flat = gt_mask.view(-1)
         cls_loss_per_agent = F.cross_entropy(pred_scores_flat, best_mode_labels, reduction='none')
-        cls_loss = (cls_loss_per_agent * gt_mask_flat).sum() / (gt_mask_flat.sum() + 1e-6)
+        cls_loss = (cls_loss_per_agent).sum()
         
         # Combine losses into a dictionary
         loss_dict = {
-            'trajectory_regression_loss': reg_loss,
-            'trajectory_classification_loss': cls_loss
+            'trajectory_regression_loss': reg_loss * self.regression_weight,
+            'trajectory_classification_loss': cls_loss * self.classification_weight
         }
         
         return loss_dict
