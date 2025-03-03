@@ -28,10 +28,9 @@ class TrajectoryLoss(Loss):
         Returns:
             Dictionary containing the computed loss metrics.
         """
-        result_dict = {
-            'trajectory_regression_loss': self.trajectory_regression_loss.compute(),
-            'trajectory_classification_loss': self.trajectory_classification_loss.compute()
-        }
+        result_dict = {}
+        result_dict['trajectory_regression_loss'] = self.trajectory_regression_loss.compute()
+        result_dict['trajectory_classification_loss'] = self.trajectory_classification_loss.compute()
         
         # Reset the metrics after computation
         self.trajectory_regression_loss.reset()
@@ -61,7 +60,6 @@ class TrajectoryLoss(Loss):
         gt_mask = gt_mask.view(B, A, T, 1)
         # Expand ground truth trajectories to allow broadcasting against modes.
         gt_traj_exp = gt_trajectories.unsqueeze(2)
-        
         # Compute L2 error over the (x,y) dimensions, resulting in shape [B, A, M, T]
         error = torch.norm(pred_trajectories - gt_traj_exp, dim=-1)
         
@@ -79,7 +77,7 @@ class TrajectoryLoss(Loss):
         # -------------------- Regression Loss --------------------
         reg_loss_per_agent = F.smooth_l1_loss(pred_best, gt_trajectories, reduction='none')
         reg_loss_per_agent = reg_loss_per_agent * gt_mask
-        reg_loss_per_agent = einops.reduce(reg_loss_per_agent, 'b a t 2 -> b a', 'mean')
+        reg_loss_per_agent = einops.reduce(reg_loss_per_agent, 'b a t 2 -> b a', 'sum')
         reg_loss = (reg_loss_per_agent).sum()
         
         # ------------------ Classification Loss ------------------

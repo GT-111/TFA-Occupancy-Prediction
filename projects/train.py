@@ -1,24 +1,29 @@
-from configs.utils.config import load_config
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-import time
-import torch
 import os
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+import torch
 import warnings
 import argparse
 # import model
-from evaluation.metrics import trajectory_metrics
 from models.AROccFlowNet.occupancy_flow_model import AROccFlowNet
 # import loss and metrics
-from evaluation.losses.occupancy_flow_map_loss import OccupancyFlowMapLoss
 from evaluation.losses.trajectory_loss import TrajectoryLoss
-from evaluation.metrics.occupancy_flow_map_metrics import OccupancyFlowMapMetrics
-from utils.training_utils import load_checkpoint, save_checkpoint
-from datasets.I24Motion.utils.dataset_utils import get_dataloader, get_dataloader_ddp
-from datasets.I24Motion.utils.training_utils import parse_data, parse_outputs
 from evaluation.metrics.trajectory_metrics import TrajectoryMetrics
+from evaluation.losses.occupancy_flow_map_loss import OccupancyFlowMapLoss
+from evaluation.metrics.occupancy_flow_map_metrics import OccupancyFlowMapMetrics
+# import training utils
+from tqdm import tqdm
+from utils.training_utils import load_checkpoint, save_checkpoint
+from datasets.I24Motion.utils.dataset_utils import get_dataloader
+from datasets.I24Motion.utils.training_utils import parse_data, parse_outputs
+# import distributed training
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+from datasets.I24Motion.utils.dataset_utils import get_dataloader_ddp
+# import config
+from configs.utils.config import load_config
+# import tensorboard
+from torch.utils.tensorboard import SummaryWriter
+
 
 warnings.filterwarnings("ignore")
 
@@ -158,7 +163,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             )
 
             # TODO: merge the occupancy_flow_map_loss and trajectory_loss
-            loss_value = torch.sum(sum(occupancy_flow_map_loss_dict.values()))
+            loss_value = torch.sum(sum(occupancy_flow_map_loss_dict.values()) + sum(trajectory_loss_dict.values()))
 
             # backward pass
             optimizer.zero_grad()
@@ -167,7 +172,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             optimizer.step()
             
             occupancy_flow_map_loss.update(occupancy_flow_map_loss_dict)
-            trajectory_loss_dict.update(trajectory_loss_dict)
+            trajectory_loss.update(trajectory_loss_dict)
 
             global_step += 1
             occupancy_flow_map_loss_res_dict = occupancy_flow_map_loss.get_result()
@@ -175,9 +180,9 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
 
             if gpu_id == 0:
                 if batch_idx % log_interval == 0:
-                    logger.add_scalars(main_tag="occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)  
-                    logger.add_scalars(main_tag="trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
-            break
+                    logger.add_scalars(main_tag="train_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)  
+                    logger.add_scalars(main_tag="train_trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
+            
         scheduler.step()
         
         ## validate
@@ -190,7 +195,8 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
         # TODO: Add the trajectory metrics
         torch.cuda.empty_cache()
         model.eval()
-        
+        if enable_ddp:
+            val_dataloader.sampler.set_epoch(epoch)
         with torch.no_grad():
             loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader))
             for batch_idx, data in loop:
@@ -254,18 +260,17 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                     gt_valid_mask
                 )
 
-                occupancy_flow_map_metrics_dict.update(occupancy_flow_map_metrics_dict)
-                trajectory_metrics_dict.update(trajectory_metrics_dict)
+                occupancy_flow_map_metrics.update(occupancy_flow_map_metrics_dict)
+                trajectory_metrics.update(trajectory_metrics_dict)
 
-                occupancy_flow_map_loss_dict.update(occupancy_flow_map_loss_dict)
-                trajectory_loss_dict.update(trajectory_loss_dict)
+                occupancy_flow_map_loss.update(occupancy_flow_map_loss_dict)
+                trajectory_loss.update(trajectory_loss_dict)
 
             occupancy_flow_map_loss_res_dict = occupancy_flow_map_loss.get_result()
             trajectory_loss_res_dict = trajectory_loss.get_result()
             occupancy_flow_map_metrics_res_dict = occupancy_flow_map_metrics.get_result()
             trajectory_metrics_res_dict = trajectory_metrics.get_result()
             if gpu_id == 0:
-                if batch_idx % log_interval == 0:
                     logger.add_scalars(main_tag="val_occupancy_flow_map_metrics", tag_scalar_dict=occupancy_flow_map_metrics_res_dict, global_step=global_step)
                     logger.add_scalars(main_tag="val_trajectory_metrics", tag_scalar_dict=trajectory_metrics_res_dict, global_step=global_step)
                     logger.add_scalars(main_tag="val_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)
@@ -277,14 +282,6 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
     destroy_process_group()
 
 
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
     # ============= Parse Argument =============
     parser = argparse.ArgumentParser(description="options")
@@ -292,12 +289,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)
-    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-    # TORCH_USE_CUDA_DSA
-    os.environ['TORCH_USE_CUDA'] = "1"
-    model_training(0, 1, config, enable_ddp=False)
-    # os.environ["NCCL_P2P_DISABLE"] = "1"
-    
-    # os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-    # world_size = torch.cuda.device_count()
-    # mp.spawn(model_training, args=(world_size, config), nprocs=world_size)
+    os.environ["NCCL_P2P_DISABLE"] = "1"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    world_size = torch.cuda.device_count()
+    mp.spawn(model_training, args=(world_size, config), nprocs=world_size)

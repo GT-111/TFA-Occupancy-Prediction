@@ -1,3 +1,4 @@
+import einops
 import torch
 import math
 from typing import Tuple
@@ -118,7 +119,7 @@ class TrajectoryMetrics(Metrics):
 
         return err, inds  # Shape: [batch_size, num_agents]
 
-
+    # // [ ] Fix the following functions
     def compute_min_ade(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Computes average displacement error for the best trajectory in a set, with respect to ground truth.
@@ -139,10 +140,10 @@ class TrajectoryMetrics(Metrics):
         err = torch.sum(err, dim=4)
         err = torch.pow(err, exponent=0.5)
 
-        err = torch.sum(err * (1 - masks_rpt), dim=3) / torch.sum((1 - masks_rpt), dim=3)
-        err, inds = torch.min(err, dim=2)  # Get min ADE along num_modes
-
-        return err, inds  # Shape: [batch_size, num_agents]
+        err = torch.sum(err * (1 - masks_rpt), dim=3) / torch.sum((masks_rpt), dim=3)
+        err, inds = torch.min(err, dim=2)  # Get min ADE along num_modes Shape: [batch_size, num_agents]
+        err = einops.reduce(err, 'b a -> 1', 'mean')
+        return err
 
 
     def compute_min_fde(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -184,5 +185,5 @@ class TrajectoryMetrics(Metrics):
 
         # Get minimum FDE and corresponding mode index
         err, inds = torch.min(err, dim=2)  # Shape: [batch_size, num_agents]
-
-        return err, inds
+        err = einops.reduce(err, 'b a -> 1', 'mean')
+        return err

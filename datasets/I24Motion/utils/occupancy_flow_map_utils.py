@@ -121,7 +121,7 @@ class GridMap():
         return occupancy_map
 
     
-    def get_flow(self, timestamp, vehicle_points, vehicle_grids):
+    def get_flow(self, timestamp, vehicle_grids):
         # timestamp (num_of_agents, num_time_steps)
         # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
         num_flow_steps = self.num_waypoints + self.num_his_points - 1
@@ -149,13 +149,13 @@ class GridMap():
           ],
           axis=1,
         )
-        vehicle_points_dxy = vehicle_points[:, :-1,...] - vehicle_points[:, 1:,...]
-        vehicle_points_dx = vehicle_points_dxy[..., 0]
-        vehicle_points_dy = vehicle_points_dxy[..., 1]
+        vehicle_grids_dxy = vehicle_grids[:, :-1,...] - vehicle_grids[:, 1:,...]
+        vehicle_grids_dx = vehicle_grids_dxy[..., 0]
+        vehicle_grids_dy = vehicle_grids_dxy[..., 1]
         
         topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_flow_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
-        gt_values_dx = vehicle_points_dx[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
-        gt_values_dy = vehicle_points_dy[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
+        gt_values_dx = vehicle_grids_dx[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
+        gt_values_dy = vehicle_grids_dy[valid_agent_indices, valid_time_indices, valid_agent_points_indices]
 
         # tf.scatter_nd() accumulates values when there are repeated indices.
         # Keep track of number of indices writing to the same pixel so we can
@@ -175,8 +175,20 @@ class GridMap():
         flow_y = np.divide(flow_y, num_values_per_pixel, out=np.zeros_like(flow_y), where=(num_values_per_pixel != 0))
         flow = np.stack([flow_x, flow_y], axis=-1)
         return flow
-        
-  
+    
+
+    def _to_image_coords(self, vehicle_points):
+
+        num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
+        vehicle_points = vehicle_points.reshape(num_of_agents, num_time_steps, self.vehicle_points_per_side_length * self.vehicle_points_per_side_width, 2)
+        if np.isnan(vehicle_points).any() or np.isinf(vehicle_points).any():
+        # Handle invalid values
+            vehicle_points = np.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
+
+        vehicle_grids = np.floor(vehicle_points / np.array((self.grid_size_width, self.grid_size_height))).astype(int)
+
+        return vehicle_grids
+    
     def get_map_flow(self, data):
         # assert the number of agents is not 0 else log it
         assert data['x_position'].shape[0] != 0, "The number of agents is 0"
@@ -186,20 +198,14 @@ class GridMap():
         timestamp = data['timestamp']
         
         vehicle_points = self.get_agents_points(data)
-        num_of_agents, num_time_steps = vehicle_points.shape[0], vehicle_points.shape[1]
-        vehicle_points = vehicle_points.reshape(num_of_agents, num_time_steps, self.vehicle_points_per_side_length * self.vehicle_points_per_side_width, 2)
-        if np.isnan(vehicle_points).any() or np.isinf(vehicle_points).any():
-        # Handle invalid values
-            vehicle_points = np.nan_to_num(vehicle_points, nan=0.0, posinf=0.0, neginf=0.0)
-
-        vehicle_grids = np.floor(vehicle_points / np.array((self.grid_size_width, self.grid_size_height))).astype(int)
+        vehicle_grids = self._to_image_coords(vehicle_points)
         
         # Calculate the occupancy map
         occluded_idx = np.argmax((timestamp > 0), axis=1) > self.num_his_points
         occluded_occupancy_map = self.get_map(num_time_steps, timestamp[occluded_idx], vehicle_grids[occluded_idx])
         observed_occupancy_map = self.get_map(num_time_steps, timestamp[~occluded_idx], vehicle_grids[~occluded_idx])
         # Calculate the flow map
-        flow_map = self.get_flow(timestamp, vehicle_points, vehicle_grids)
+        flow_map = self.get_flow(timestamp, vehicle_grids)
         
         # return occluded_occupancy_map, observed_occupancy_map, flow_map
         return  occluded_occupancy_map, observed_occupancy_map, flow_map

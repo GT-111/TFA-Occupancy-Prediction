@@ -49,13 +49,14 @@ weight_path = None  # None is the last ckpt you have trained
 config = dict(
     project_name=project_name,
     project_dir=project_dir,
+    dataset_config=dataset_config,
     dataloaders=dict(
         datasets=dict(
             train_ratio = 0.8,
             validation_ratio = 0.1,
             test_ratio = 0.1,
             data_path=generated_data_path,
-            total_data_samples=1000,
+            total_data_samples=2000,
         ),
         train=dict(
             batch_size=batch_size,
@@ -150,7 +151,8 @@ config = dict(
         log_interval=100,
     ),
     test=dict(
-
+        occupancy_flow_map_height=occupancy_flow_map_height,
+        occupancy_flow_map_width=occupancy_flow_map_width,
     ),
     loggers=dict(
         tensorboard=dict(

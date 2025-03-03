@@ -22,6 +22,7 @@ class I24MotionDatasetFile():
         # ============= Load Paths =================
         self.paths = dataset_config.paths
         self.generated_data_path = self.paths.generated_data_path
+        os.path.exists(self.generated_data_path) or os.makedirs(self.generated_data_path)
         # ============= Load Occpancy Flow Map Config =================
         self.occupancy_flow_map_config = dataset_config.occupancy_flow_map
         # ============= Load Trajectory COnfig =================
@@ -240,17 +241,17 @@ class I24MotionDatasetFile():
         observed_types = feature_dic['class'][observed_idx]
         occluded_types = feature_dic['class'][~observed_idx]
         # x_velocity, y_velocity
-        trajectories = np.concatenate([feature_dic['x_velocity'][..., None], feature_dic['y_velocity'][...,None]], axis=-1)
+        observed_trajectories = np.concatenate([feature_dic['x_velocity'][observed_idx][..., None], feature_dic['y_velocity'][observed_idx][...,None]], axis=-1)
         valid_mask = feature_dic['timestamp'][observed_idx] > 0
         # the vehicle class is concatenated to the end of the trajectory
     
-        return observed_agent_features, occluded_agent_features, observed_types, occluded_types, trajectories, valid_mask
+        return observed_agent_features, occluded_agent_features, observed_types, occluded_types, observed_trajectories, valid_mask
     
 
     def get_output_dic(self, feature_dic):
 
         occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic)
-        observed_agent_features, occluded_agent_features, agent_types, _, trajectories, valid_mask= self.get_trajectories(feature_dic)
+        observed_agent_features, occluded_agent_features, agent_types, _, observed_trajectories, valid_mask= self.get_trajectories(feature_dic)
         result_dic = {
             'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
             'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
@@ -277,7 +278,7 @@ class I24MotionDatasetFile():
         
         output_dic['his/observed_agent_features'] = result_dic['observed_agent_features'][..., :self.num_his_points, :]
         output_dic['pred/observed_agent_features'] = result_dic['observed_agent_features'][..., self.num_his_points: self.num_his_points + self.num_waypoints, :]
-        output_dic['pred/trajectories'] = trajectories[..., self.num_his_points: self.num_his_points + self.num_waypoints, :]
+        output_dic['pred/trajectories'] = observed_trajectories[..., self.num_his_points: self.num_his_points + self.num_waypoints, :]
         output_dic['his/valid_mask'] = valid_mask[..., :self.num_his_points]
         output_dic['pred/valid_mask'] = valid_mask[..., self.num_his_points: self.num_his_points + self.num_waypoints]
         output_dic['agent_types'] = agent_types
