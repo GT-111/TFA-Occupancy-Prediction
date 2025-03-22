@@ -1,8 +1,9 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from .utils import get_cmap
+from .visualize_utils import get_cmap
 from utils.occupancy_flow_map_utils import sample
+
 def validate_flow_wrap_occupancy(test_data, occupancy_flow_map_config, k):
     occupancy_flow_map_height = occupancy_flow_map_config.occupancy_flow_map_height
     occupancy_flow_map_width = occupancy_flow_map_config.occupancy_flow_map_width

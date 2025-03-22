@@ -1,6 +1,7 @@
 import numpy as np
 from torch.utils.data import Dataset
 from utils.file_utils import get_files_with_extension
+
 class I24MotionDataset(Dataset):
     def __init__(self, datasets_config):
         self.datasets_config = datasets_config

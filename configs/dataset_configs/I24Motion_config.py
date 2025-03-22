@@ -20,7 +20,7 @@ keys_to_use = ['_id', 'timestamp', 'x_position', 'y_position', 'length', 'width'
 
 # ============= Task General Parameters =================
 history_length = 100
-num_his_points = 20
+num_his_points = 10
 prediction_length = 400
 num_waypoints = 20
 
@@ -57,6 +57,7 @@ config = dict(
     trajectory=dict(
         node_features_list=node_features_list,
         vector_features_list=vector_features_list,
+        num_states=len(node_features_list) + len(vector_features_list),
     ),
     occupancy_flow_map=dict(
         spatial_stride=spatial_stride,

@@ -124,13 +124,18 @@ class GridMap():
     def get_flow(self, timestamp, vehicle_grids):
         # timestamp (num_of_agents, num_time_steps)
         # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
+        vehicle_grids_dxy = vehicle_grids[:, :-1,...] - vehicle_grids[:, 1:,...]
+        vehicle_grids_dx = vehicle_grids_dxy[..., 0]
+        vehicle_grids_dy = vehicle_grids_dxy[..., 1]
+
+
         num_flow_steps = self.num_waypoints + self.num_his_points - 1
         num_points_per_vehicle = vehicle_grids.shape[2]
         timestamp_repeated= timestamp[...,None].repeat(num_points_per_vehicle, axis = 2)
         timestamp = timestamp_repeated[:, :-1,...]
         timestamp_shifted = timestamp_repeated[:, 1:,...]
         timestamp_valid = (timestamp > 0) & (timestamp_shifted > 0)
-        # timestamp_repeated (num_of_agents, num_time_steps, num_points_per_vehicle)
+        
         vehicle_grids = vehicle_grids[:, 1:,...]
         vehicle_grids_valid = (vehicle_grids[...,0] < self.occupancy_flow_map_width) & (vehicle_grids[...,0] >= 0) & (vehicle_grids[...,1] < self.occupancy_flow_map_height) & (vehicle_grids[...,1] >= 0)
         valid_agent_indices, valid_time_indices, valid_agent_points_indices = (np.where(timestamp_valid & vehicle_grids_valid))
@@ -149,9 +154,7 @@ class GridMap():
           ],
           axis=1,
         )
-        vehicle_grids_dxy = vehicle_grids[:, :-1,...] - vehicle_grids[:, 1:,...]
-        vehicle_grids_dx = vehicle_grids_dxy[..., 0]
-        vehicle_grids_dy = vehicle_grids_dxy[..., 1]
+        
         
         topdown_shape = [self.occupancy_flow_map_height, self.occupancy_flow_map_width, num_flow_steps] # [batch_size, grid_height_cells, grid_width_cells, num_steps]
         gt_values_dx = vehicle_grids_dx[valid_agent_indices, valid_time_indices, valid_agent_points_indices]

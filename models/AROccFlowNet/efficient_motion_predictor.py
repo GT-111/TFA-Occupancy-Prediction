@@ -64,8 +64,8 @@ class MotionDecoder(nn.Module):
         self.num_time_steps = num_time_steps
         self.learnale_motion_query = nn.Parameter(torch.randn(num_motion_mode, hidden_dim)) # (num_motion_mode, hidden_dim) (K, D)
         self.cross_attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout_prob, batch_first=True)
-        self.trajs_projection = nn.Linear(in_features=hidden_dim, out_features=2 * self.num_time_steps)
-        self.score_projection = nn.Linear(in_features=hidden_dim, out_features=1)
+        # self.trajs_projection = nn.Linear(in_features=hidden_dim, out_features=2 * self.num_time_steps)
+        # self.score_projection = nn.Linear(in_features=hidden_dim, out_features=1)
         self.layer_norm = nn.LayerNorm(hidden_dim)
     def forward(self, agent_embeddings):
         batch_size, num_agents, _ = agent_embeddings.size()
@@ -95,9 +95,9 @@ class MotionPredictor(nn.Module):
         self.dropout_prob = config.dropout_prob
         self.num_layers = config.num_layers # number of layers in the transformer encoder
         self.num_motion_mode = config.num_motion_mode
-        self.num_time_steps = config.num_time_steps
+        self.num_waypoints = config.num_waypoints
         self.encoder = MotionEncoder(num_states=self.num_states, hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_layers=self.num_layers)
-        self.decoder = MotionDecoder(hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_motion_mode=self.num_motion_mode, num_time_steps=self.num_time_steps)
+        self.decoder = MotionDecoder(hidden_dim=self.hidden_dim, num_heads=self.num_heads, dropout_prob=self.dropout_prob, num_motion_mode=self.num_motion_mode, num_time_steps=self.num_waypoints)
     
     def forward(self, agent_states, agent_types, valid_mask):
         """
@@ -107,9 +107,10 @@ class MotionPredictor(nn.Module):
         """
 
         agent_embeddings = self.encoder(agent_states, agent_types, valid_mask) # (batch_size, num_agents, hidden_dim)
-        trajs, scores, context = self.decoder(agent_embeddings)
+        # trajs, scores, context = self.decoder(agent_embeddings)
         
-        return trajs, scores, context, agent_embeddings
+        # return trajs, scores, context, agent_embeddings
+        return agent_embeddings
     
 
 if __name__ == "__main__":

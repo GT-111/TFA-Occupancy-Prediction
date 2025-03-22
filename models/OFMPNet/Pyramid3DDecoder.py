@@ -108,7 +108,7 @@ class Pyramid3DDecoder(nn.Module):
                             stride=1,
                             padding="same"
                         ), nn.ELU()
-                    ) for i in decode_inds[:3-self.shallow_decode]
+                    ) for i in decode_inds[:3-self.shallow_decode] [3, 2, 1, 0]
                 ])
             self.ind_list=[2,1,0][self.shallow_decode:]
             self.reshape_dim = [16,32,64][self.shallow_decode:]

@@ -166,9 +166,7 @@ class I24MotionDatasetFile():
             # calculate yaw angle from x_velocity and y_velocity
             vehicle_yaw_angle_cur = np.arctan2(vehicle_y_velocity_cur, vehicle_x_velocity_cur)       
             vehicle_yaw_angle_cur = np.nan_to_num(vehicle_yaw_angle_cur)
-            # skip the vehicle if the yaw angle is abnormal (yaw angle should be with in +- 30 degree)
-            if np.abs(np.arctan(vehicle_y_velocity_cur, vehicle_x_velocity_cur)).max() > np.pi / 4:
-                continue
+
             
             vehicles_length[idx] = vehicle_length_cur
             vehicles_width[idx] = vehicle_width_cur
@@ -211,8 +209,6 @@ class I24MotionDatasetFile():
             'class':vehicles_class,
             'x_position': self.convert(vehicles_x),
             'y_position': self.convert(vehicles_y),
-            'x_velocity': self.convert(vehicles_x_velocity),
-            'y_velocity': self.convert(vehicles_y_velocity),
             'yaw_angle': self.convert(vehicles_yaw_angle),
             # 'start_pos': spatial_start,
             # 'start_time': temporal_start,
@@ -241,7 +237,13 @@ class I24MotionDatasetFile():
         observed_types = feature_dic['class'][observed_idx]
         occluded_types = feature_dic['class'][~observed_idx]
         # x_velocity, y_velocity
-        observed_trajectories = np.concatenate([feature_dic['x_velocity'][observed_idx][..., None], feature_dic['y_velocity'][observed_idx][...,None]], axis=-1)
+        x_position = feature_dic['x_position'][observed_idx]
+        y_position = feature_dic['y_position'][observed_idx]
+        timestamp = feature_dic['timestamp'][observed_idx]
+        vehicle_x_velocity_cur = (x_position - x_position.shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
+        vehicle_y_velocity_cur = (y_position.values - y_position.shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
+        observed_trajectories = np.stack([vehicle_x_velocity_cur, vehicle_y_velocity_cur], axis = -1)
+        observed_trajectories = np.nan_to_num(observed_trajectories)
         valid_mask = feature_dic['timestamp'][observed_idx] > 0
         # the vehicle class is concatenated to the end of the trajectory
     
@@ -250,8 +252,8 @@ class I24MotionDatasetFile():
 
     def get_output_dic(self, feature_dic):
 
-        occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic)
-        observed_agent_features, occluded_agent_features, agent_types, _, observed_trajectories, valid_mask= self.get_trajectories(feature_dic)
+        occluded_occupancy_map, observed_occupancy_map, flow_map = self.grid_map_helper.get_map_flow(feature_dic.copy())
+        observed_agent_features, occluded_agent_features, agent_types, _, observed_trajectories, valid_mask= self.get_trajectories(feature_dic.copy())
         result_dic = {
             'occluded_occupancy_map': occluded_occupancy_map, # H,W,T,1
             'observed_occupancy_map': observed_occupancy_map, # H,W,T,1
@@ -321,18 +323,21 @@ class I24MotionDatasetPreprocessor():
         self.paths = dataset_config.paths
         self.processed_data_path = self.paths.processed_data_path
 
-    def process_file(self, data_file_path):
+    def process_file(self, data_file_path, multi_threaded=True):
         data_file = I24MotionDatasetFile(data_file_path, dataset_config)
         num_scenes_to_process = min(data_file.max_idx, self.num_scenes_to_process_per_file)
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-            # Wrap tqdm around the executor to show progress
-            list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=num_scenes_to_process))
+        if not multi_threaded:
+            for idx in tqdm(range(num_scenes_to_process)):
+                data_file.process_idx(idx)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+                # Wrap tqdm around the executor to show progress
+                list(tqdm(executor.map(data_file.process_idx, range(self.num_scenes_to_process_per_file)), total=num_scenes_to_process))
 
-    def process_files(self,):
+    def process_files(self, multi_threaded=True):
         data_files = get_files_with_extension(self.processed_data_path, '.parquet')
         for data_file in data_files:
-            self.process_file(data_file)
+            self.process_file(data_file, multi_threaded=multi_threaded)
 
 
 
@@ -343,7 +348,7 @@ if __name__ == '__main__':
     dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
     # process_raw_json2csv(dataset_config)
     preprocessor = I24MotionDatasetPreprocessor(dataset_config)
-    preprocessor.process_files()
+    preprocessor.process_files(multi_threaded=True)
 
 
 

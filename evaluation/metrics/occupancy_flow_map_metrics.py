@@ -99,7 +99,7 @@ def compute_occupancy_flow_metrics(
     gt_occluded_occupancy_logits: Ground truth occluded occupancy [B, H, W, T ,1].
     gt_flow_logits: Ground truth flow [B, H, W, T ,2].
     flow_origin_occupancy_logits: Flow origin occupancy logits.
-    gt_mask: Ground truth mask to indicate valid regions.
+    gt_mask: Ground truth mask to indicate valid time steps [B, T].
 
   Returns:
     OccupancyFlowMetrics proto message containing mean metric values averaged

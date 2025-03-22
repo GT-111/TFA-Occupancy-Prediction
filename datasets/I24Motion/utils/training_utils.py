@@ -84,15 +84,15 @@ def parse_outputs(outputs, train):
     """
     Parse model outputs
     """
-    pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores = outputs
+    pred_observed_occupancy_logits = outputs[..., 0:1]
+    pred_flow_logits = outputs[..., 1:3]
     if train:
-        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores
+        return pred_observed_occupancy_logits, pred_flow_logits
     
     else:
         pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
-        pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
 
-        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits, predicted_trajectories, predicted_trajectories_scores
+        return pred_observed_occupancy_logits, pred_flow_logits
     
     
     

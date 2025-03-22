@@ -3,7 +3,9 @@ import matplotlib.animation as animation
 import flow_vis
 import numpy as np
 import typing
-from .utils import get_cmap
+
+from pyparsing import col
+from .visualize_utils import get_cmap
 
 def process_data_for_visualization(occupancy_flow_map_config, history_data_dic, future_data_dic):
 
@@ -117,9 +119,9 @@ def visualize(config, name, history_data_dic, future_data_dic, vis_occ=True, vis
     # Initialize the occupancy map with the first frame's data
     if vis_occ:
         
-        img_prv_occ_ogm = axes[0].imshow(history_data_dic['prv']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-        img_cur_occ_ogm = axes[1].imshow(history_data_dic['cur']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-        img_nxt_occ_ogm = axes[2].imshow(history_data_dic['nxt']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        # img_prv_occ_ogm = axes[0].imshow(history_data_dic['prv']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        # img_cur_occ_ogm = axes[1].imshow(history_data_dic['cur']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+        # img_nxt_occ_ogm = axes[2].imshow(history_data_dic['nxt']['occluded_occupancy_map'][:,:, 0], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
 
         img_prv_obs_ogm = axes[0].imshow(history_data_dic['prv']['observed_occupancy_map'][:,:, 0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
         img_cur_obs_ogm = axes[1].imshow(history_data_dic['cur']['observed_occupancy_map'][:,:, 0], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
@@ -175,9 +177,9 @@ def visualize(config, name, history_data_dic, future_data_dic, vis_occ=True, vis
         # Initialize the occupancy map with the first frame's data
         if vis_occ:
             
-            img_prv_occ_ogm = axes[0].imshow(data_dic['prv']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-            img_cur_occ_ogm = axes[1].imshow(data_dic['cur']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
-            img_nxt_occ_ogm = axes[2].imshow(data_dic['nxt']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            # img_prv_occ_ogm = axes[0].imshow(data_dic['prv']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            # img_cur_occ_ogm = axes[1].imshow(data_dic['cur']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
+            # img_nxt_occ_ogm = axes[2].imshow(data_dic['nxt']['occluded_occupancy_map'][:, :, frame], cmap=cmap_occ, interpolation='nearest', alpha=0.5)
 
             img_prv_obs_ogm = axes[0].imshow(data_dic['prv']['observed_occupancy_map'][:, :, frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
             img_cur_obs_ogm = axes[1].imshow(data_dic['cur']['observed_occupancy_map'][:, :, frame], cmap=cmap_obs, interpolation='nearest', alpha=0.5)
@@ -220,6 +222,41 @@ def visualize(config, name, history_data_dic, future_data_dic, vis_occ=True, vis
 
 
 
+
+
+def visualize_trajectories(name, gt_trajectories, predicted_trajectories):
+    """
+    Visualizes ground truth and predicted trajectories.
+    
+    Args:
+        gt_trajectories (numpy array): shape [batch_size, num_agents, sequence_length, 2]
+        predicted_trajectories (numpy array): shape [batch_size, num_agents, num_modes, sequence_length, 2]
+    """
+    fig, ax = plt.subplots()
+    batch_size, num_agents, num_modes, sequence_length, _ = predicted_trajectories.shape
+    
+    for i in range(batch_size):
+        for j in range(num_agents):
+            # Compute ground truth cumulative trajectory, ensuring the first point is (0,0)
+            gt_trajectory = np.zeros((sequence_length + 1, 2))
+            gt_trajectory[1:] = np.cumsum(gt_trajectories[i, j], axis=0)
+            ax.plot(gt_trajectory[:, 0], gt_trajectory[:, 1])
+            
+            for k in range(num_modes):
+                # Compute predicted cumulative trajectory, ensuring the first point is (0,0)
+                predicted_trajectory = np.zeros((sequence_length + 1, 2))
+                predicted_trajectory[1:] = np.cumsum(predicted_trajectories[i, j, k], axis=0)
+                ax.plot(predicted_trajectory[:, 0], predicted_trajectory[:, 1], color='red', alpha=0.5)
+                break
+            break
+        break
+    ax.set_xlabel("X Position")
+    ax.set_ylabel("Y Position")
+    ax.set_title("Trajectory Visualization")
+    ax.legend()
+    plt.grid()
+    plt.savefig(f'{name}_trajectories.png')
+    plt.show()
 
 
 

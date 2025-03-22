@@ -1,27 +1,95 @@
+from pyexpat import features
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
-from timm.models.convnext import convnext_small, convnext_tiny
+from timm.models.convnext import ConvNeXt, convnext_tiny
 from configs.utils.config import load_config
-from datasets.I24Motion.utils.generate_test_data import SampleModelInput
+import einops
+
+class PatchEmbed(nn.Module):
+    def __init__(self, config):
+        super(PatchEmbed, self).__init__()
+        self.img_size = config.img_size
+        self.patch_size = config.patch_size
+        patches_resolution = [self.img_size[0] //
+                              self.patch_size[0], self.img_size[1] // self.patch_size[1]]
+        
+        self.patches_resolution = patches_resolution
+        self.num_patches = patches_resolution[0] * patches_resolution[1]
+
+        self.in_chans = config.in_chans
+        self.embed_dim = config.embed_dim
+
+        self.proj = nn.Conv2d(in_channels=self.in_chans, out_channels=self.embed_dim, kernel_size=self.patch_size,
+                           stride=self.patch_size)
+        
+        self.norm = nn.LayerNorm(normalized_shape=self.embed_dim, eps=1e-5)
+        
+
+    def forward(self, x):
+        B, H, W, C = x.size()
+
+        x = x.permute(0,3,1,2) # B C H W
+        x = self.proj(x)
+        
+        x = x.permute(0,2,3,1) # B H W C
+        x = torch.reshape(
+            x, shape=[-1, (H // self.patch_size[0]) * (W // self.patch_size[0]), self.embed_dim])
+        
+        x = self.norm(x)
+        x = torch.reshape(x, shape=[B, H // self.patch_size[0], W // self.patch_size[0], self.embed_dim])
+
+        return x
 
 class ConvNeXtFeatureExtractor(nn.Module):
     """ConvNeXt-based feature extractor returning multi-scale features."""
-    def __init__(self, pretrained=True):
+    def __init__(self, config):
         super().__init__()
-        self.backbone = convnext_tiny(pretrained=pretrained, features_only=True)
+        
+        self.embed_dims = config.embed_dims
+        self.depths = config.depths
+        self.convnext = ConvNeXt(dims= self.embed_dims, depths=self.depths)
+        self.shallow_decode = config.shallow_decode
+        self.indicies = [stage for stage in range(len(self.embed_dims) + 1)][1:-self.shallow_decode]
+        
+        
+        patch_embedding_occupancy_map_config = config.patch_embedding_occupancy_map
+        patch_embedding_flow_map_config = config.patch_embedding_flow_map
+        self.patch_embedding_occupancy_map = PatchEmbed(patch_embedding_occupancy_map_config)
+        self.patch_embedding_flow_map = PatchEmbed(patch_embedding_flow_map_config)
+        
+        self.hidden_dim = config.hidden_dim
+        # self.occupancy_conv = nn.Conv2d(in_channels=self.embed_dims[0], out_channels=self.hidden_dim, kernel_size=(1, 1), padding=(0, 0), stride=(1, 1))
 
-    def forward(self, x):
+        self.flow_temporal_depth = config.flow_temporal_depth
+        self.flow_temporal_conv = nn.Sequential(
+            nn.Conv3d(in_channels=self.embed_dims[0], out_channels=self.embed_dims[0], kernel_size=(self.flow_temporal_depth, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1)),
+            nn.ReLU(inplace=True)
+            )
+    def forward(self, occupancy_map, flow_map):
         """
         Extracts multi-scale features from ConvNeXt.
+        occupancy_map: (B, H, W, T, C)
+        flow_map: (B, H, W, T, C)
         Returns:
         - Stage 1: (B, 128, H/4, W/4)
         - Stage 2: (B, 256, H/8, W/8)
         - Stage 3: (B, 512, H/16, W/16)
         - Stage 4: (B, 1024, H/32, W/32)
         """
-        return self.backbone(x)
+        batch_size, height, width, temporal_depth, _ = occupancy_map.size()
+        occupancy_map_embedding = self.patch_embedding_occupancy_map(occupancy_map.reshape(batch_size, height, width, temporal_depth))
+        occupancy_map_embedding = einops.rearrange(occupancy_map_embedding, 'b h w c -> b c h w')
+        # occupancy_map_embedding = self.occupancy_conv(occupancy_map_embedding)
+        
+        flow_map = einops.rearrange(flow_map, 'b h w t c -> (b t) h w c')
+        flow_map_embedding = self.patch_embedding_flow_map(flow_map)
+        flow_map_embedding = einops.rearrange(flow_map_embedding, '(b t) h w c -> b c t h w', b=batch_size)
+        flow_map_embedding = self.flow_temporal_conv(flow_map_embedding).squeeze(2)
+        x = occupancy_map_embedding + flow_map_embedding
+        x = self.convnext.forward_intermediates(x, indices=self.indicies, intermediates_only=True)
+        
+        return x
 
 class UNetDecoder(nn.Module):
     """U-Net decoder for multi-scale feature fusion."""
@@ -48,13 +116,9 @@ class UNetDecoder(nn.Module):
         )
 
 
-    def forward(self, features):
-        assert len(features) == len(self.upsample_blocks) + 1, (
-            f"Expected {len(self.upsample_blocks) + 1} feature maps, but got {len(features)}."
-        )
-
-        x = features[-1]  # Start from the deepest feature map
-
+    def forward(self, x, features, pos_embeddings):
+        
+        
         for i, up_block in enumerate(self.upsample_blocks):
             skip = features[-(i+2)]  # Get corresponding skip connection
 
@@ -111,7 +175,7 @@ class ConvNeXtUNet(nn.Module):
 
         """
         fearture_map = torch.cat([occupancy_map[..., 1:, :], flow_map], dim=-1)
-        fearture_map = rearrange(fearture_map, "b h w t c -> b t c h w")  # (B, T, C, H, W)
+        fearture_map = einops.rearrange(fearture_map, "b h w t c -> b t c h w")  # (B, T, C, H, W)
         B, T, C, H, W = fearture_map.shape
 
         assert (H, W) == self.img_size, (
@@ -121,7 +185,7 @@ class ConvNeXtUNet(nn.Module):
             f"Temporal depth ({self.temporal_depth}) must not exceed number of frames ({T})."
         )
 
-        fearture_map = rearrange(fearture_map, "b t c h w -> (b t) c h w")  
+        fearture_map = einops.rearrange(fearture_map, "b t c h w -> (b t) c h w")  
 
         # Extract multi-scale features from ConvNeXt
         features = self.convnext(fearture_map)
@@ -135,7 +199,7 @@ class ConvNeXtUNet(nn.Module):
 
         fused_features = self.unet_decoder(features)  
         
-        fused_features = rearrange(fused_features, "(b t) c h w -> b c t h w", b=B, t=T)  
+        fused_features = einops.rearrange(fused_features, "(b t) c h w -> b c t h w", b=B, t=T)  
         
         fused_features = self.temporal_conv(fused_features).squeeze(2)
 
@@ -143,15 +207,4 @@ class ConvNeXtUNet(nn.Module):
         return fused_features  # Final shape: (B, C, H/4, W/4)
 
 if __name__ == '__main__':
-    config = load_config("configs/AROccFlowNetS.py")
-    # Initialize model
-    model = ConvNeXtUNet(config.models.convnextunet)
-    input_dic = SampleModelInput().generate_sample_input()
-    occupancy_map = input_dic['occupancy_map']
-    flow_map = input_dic['flow_map']
-    input_data = torch.cat([occupancy_map, flow_map], dim=2)
-    # Forward pass
-    output = model(input_data)
-
-    # Verify output shape
-    print("Output shape:", output.shape)  # Expected: (4, 3, 64, 80, 32)
+    pass

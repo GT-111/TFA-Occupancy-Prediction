@@ -20,11 +20,11 @@ class TrajectoryMetrics(Metrics):
         :param predicted_trajectories: shape [batch_size, num_modes, sequence_length, 2]
         :param groundtruth_trajectories: shape [batch_size, sequence_length, 2]
         :param valid_mask: shape [batch_size, sequence_length]
-        :return: 
+        :return:
         """
-        mse = self.compute_mse(predicted_trajectories, groundtruth_trajectories, valid_mask)
-        max_dist = self.compute_max_dist(predicted_trajectories, groundtruth_trajectories, valid_mask)
-        min_mse = self.compute_min_mse(predicted_trajectories, groundtruth_trajectories, valid_mask)
+        # mse = self.compute_mse(predicted_trajectories, groundtruth_trajectories, valid_mask)
+        # max_dist = self.compute_max_dist(predicted_trajectories, groundtruth_trajectories, valid_mask)
+        # min_mse = self.compute_min_mse(predicted_trajectories, groundtruth_trajectories, valid_mask)
         min_ade = self.compute_min_ade(predicted_trajectories, groundtruth_trajectories, valid_mask)
         min_fed = self.compute_min_fde(predicted_trajectories, groundtruth_trajectories, valid_mask)
         metrics_dict = {
@@ -33,7 +33,7 @@ class TrajectoryMetrics(Metrics):
         }
 
         return metrics_dict
-    
+
     def update(self, metrics_dict):
 
         self.min_ade.update(metrics_dict['trajectories_min_ade'])
@@ -119,8 +119,8 @@ class TrajectoryMetrics(Metrics):
 
         return err, inds  # Shape: [batch_size, num_agents]
 
-    # // [ ] Fix the following functions
-    def compute_min_ade(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    # // [ ] Fix the following function, get NaN values
+    def compute_min_ade(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         """
         Computes average displacement error for the best trajectory in a set, with respect to ground truth.
 
@@ -129,24 +129,24 @@ class TrajectoryMetrics(Metrics):
         :param masks: masks for varying length ground truth, shape [batch_size, num_agents, sequence_length]
         :return errs, inds: errors and indices for modes with min ADE, shape [batch_size, num_agents]
         """
-
+        
         num_modes = traj.shape[2]
 
         traj_gt_rpt = traj_gt.unsqueeze(2).repeat(1, 1, num_modes, 1, 1)
         masks_rpt = masks.unsqueeze(2).repeat(1, 1, num_modes, 1)
 
         err = traj_gt_rpt - traj[:, :, :, :, 0:2]
-        err = torch.pow(err, exponent=2)
-        err = torch.sum(err, dim=4)
-        err = torch.pow(err, exponent=0.5)
+        err = torch.norm(err, dim=4)  # Compute Euclidean distance per timestep
 
-        err = torch.sum(err * (1 - masks_rpt), dim=3) / torch.sum((masks_rpt), dim=3)
-        err, inds = torch.min(err, dim=2)  # Get min ADE along num_modes Shape: [batch_size, num_agents]
-        err = einops.reduce(err, 'b a -> 1', 'mean')
-        return err
+        # Correct mask usage
+        err = torch.sum(err * masks_rpt, dim=3) / torch.sum(masks_rpt, dim=3)
+
+        err, _ = torch.min(err, dim=2)  # Min ADE over num_modes
+
+        return err.mean()  # Compute final mean ADE
 
 
-    def compute_min_fde(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_min_fde(self, traj: torch.Tensor, traj_gt: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         """
         Computes final displacement error (FDE) for the best trajectory in a set, with respect to ground truth.
 
@@ -156,34 +156,22 @@ class TrajectoryMetrics(Metrics):
         :return errs, inds: errors and indices for modes with min final displacement error, shape [batch_size, num_agents]
         """
 
-        num_modes = traj.shape[2]
-        batch_size, num_agents, _, seq_len, _ = traj.shape
+        batch_size, num_agents, num_modes, seq_len, _ = traj.shape
 
-        # Find the last valid index for each agent
-        last_valid_idx = (torch.sum(1 - masks, dim=2) - 1).long()  # Shape: [batch_size, num_agents]
-        last_valid_idx = torch.clamp(last_valid_idx, min=0, max=seq_len - 1)
+        # Find last valid index per agent
+        last_valid_idx = (torch.sum(masks, dim=2) - 1).clamp(min=0, max=seq_len - 1).to(dtype=torch.int64)
 
-        # Gather final predicted positions across all modes
-        final_preds = traj[
-            torch.arange(batch_size).view(-1, 1, 1),  # Batch index
-            torch.arange(num_agents).view(1, -1, 1),  # Agent index
-            torch.arange(num_modes).view(1, 1, -1),  # Mode index
-            last_valid_idx[:, :, None],  # Last valid timestep index
-            :2  # Only take x, y
-        ]  # Shape: [batch_size, num_agents, num_modes, 2]
+        # Gather final predicted positions correctly
+        last_valid_idx_expanded = last_valid_idx[:, :, None, None, None].expand(-1, -1, num_modes, -1, 2)
+        final_preds = traj.gather(dim=3, index=last_valid_idx_expanded).squeeze(3)
 
         # Gather final ground truth positions
-        final_gt = traj_gt[
-            torch.arange(batch_size)[:, None],  # Batch index
-            torch.arange(num_agents)[None, :],  # Agent index
-            last_valid_idx,  # Last valid timestep index
-            :2  # Only take x, y
-        ]  # Shape: [batch_size, num_agents, 2]
+        final_gt = traj_gt.gather(dim=2, index=last_valid_idx[:, :, None, None].expand(-1, -1, -1, 2)).squeeze(2)
 
         # Compute Euclidean distance
         err = torch.norm(final_preds - final_gt.unsqueeze(2), dim=3)  # Shape: [batch_size, num_agents, num_modes]
 
-        # Get minimum FDE and corresponding mode index
-        err, inds = torch.min(err, dim=2)  # Shape: [batch_size, num_agents]
-        err = einops.reduce(err, 'b a -> 1', 'mean')
-        return err
+        # Get min FDE across num_modes
+        err, _ = torch.min(err, dim=2)
+
+        return err.mean()  # Compute final mean FDE
