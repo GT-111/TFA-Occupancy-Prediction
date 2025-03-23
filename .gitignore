@@ -7,4 +7,7 @@ test*
 *.pt
 *.vscode
 *.code-workspace
+*.npz
+*.png
+*.npy
 /exp

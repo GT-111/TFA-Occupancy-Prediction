@@ -42,7 +42,48 @@ class OccupancyFlowMapLoss(Loss):
         self.occluded_occupancy_cross_entropy.update(loss_dict['occluded_occupancy_cross_entropy'])
         self.flow_norm.update(loss_dict['flow_norm'])
         self.flow_wrap_occupancy_cross_entropy.update(loss_dict['flow_wrap_occupancy_cross_entropy'])
+    
+    def compute_occypancy_map_loss(self, pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_mask) -> Dict[str, torch.Tensor]:
+        """
+        Calculate the occupancy flow map loss.
+
+        Args:
+            pred_observed_occupancy_logits: Predicted logits for observed occupancy [B, H, W, T ,1].
+            pred_occluded_occupancy_logits: Predicted logits for occluded occupancy [B, H, W, T ,1].
+            pred_flow_logits: Predicted logits for flow [B, H, W, T , 2].
+            gt_observed_occupancy_logits: Ground truth observed occupancy [B, H, W, T ,1].
+            gt_occluded_occupancy_logits: Ground truth occluded occupancy [B, H, W, T ,1].
+            gt_flow_logits: Ground truth flow [B, H, W, T ,2].
+            flow_origin_occupancy_logits: Flow origin occupancy logits.
+            gt_mask: Ground truth mask to indicate valid timesteps. [B, T]
+
+        Returns:
+            A dictionary of loss components.
+        """
         
+
+        loss_dict = {'observed_occupancy_cross_entropy': []}
+        batch_size, occupancy_flow_map_height, occupancy_flow_map_width, n_waypoints,_ = pred_observed_occupancy_logits.shape
+
+
+        # Iterate over each waypoint to calculate losses
+        f_c = []  # Track flow correction factor
+        for k in range(n_waypoints):
+            # Extract predicted and ground truth values for current waypoint
+            pred_observed_occupancy = pred_observed_occupancy_logits[..., k, :]
+
+            true_observed_occupancy = gt_observed_occupancy_logits[..., k, :]
+            
+            mask = gt_mask[..., k].view(-1, 1, 1, 1)
+            # Calculate observed occupancy loss
+            loss_dict['observed_occupancy_cross_entropy'].append(
+                self._sigmoid_xe_loss(true_observed_occupancy * mask, pred_observed_occupancy * mask, self.ogm_weight))
+
+        n_dict = {
+            'observed_occupancy_cross_entropy': sum(loss_dict['observed_occupancy_cross_entropy']) / n_waypoints,
+        }
+
+        return n_dict  
     def compute(self, pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits,
                  gt_observed_occupancy_logits, gt_occluded_occupancy_logits, gt_flow_logits,
                  flow_origin_occupancy_logits, gt_mask) -> Dict[str, torch.Tensor]:

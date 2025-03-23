@@ -62,7 +62,7 @@ class ConvGRUCell(nn.Module):
         return h_new
     
     
-class TimeSeriesMemoryConvGRU(nn.Module):
+class MemoryConvGRU(nn.Module):
     """
     Multi-layer ConvGRU that processes exactly ONE timestep per forward() call.
     Follows a similar style to the TimeSeriesMemoryGRU you provided.
@@ -77,7 +77,7 @@ class TimeSeriesMemoryConvGRU(nn.Module):
           config.kernel_size:       int => convolution kernel size
         """
         super().__init__()
-        self.prev_out_channels = config.prev_out_channels
+        # self.prev_out_channels = config.prev_out_channels
         self.context_channels  = config.context_channels
 
         # You can allow config.hidden_channels to be either a single int
@@ -95,7 +95,8 @@ class TimeSeriesMemoryConvGRU(nn.Module):
         self.cells = nn.ModuleList()
         
         # First layer sees channels = prev_out_channels + context_channels
-        input_channels = self.prev_out_channels + self.context_channels
+        # input_channels = self.prev_out_channels + self.context_channels
+        input_channels = self.context_channels
         self.cells.append(ConvGRUCell(input_channels,
                                       self.hidden_channels[0],
                                       self.kernel_size))
@@ -105,8 +106,16 @@ class TimeSeriesMemoryConvGRU(nn.Module):
             in_ch = self.hidden_channels[i-1]
             out_ch = self.hidden_channels[i]
             self.cells.append(ConvGRUCell(in_ch, out_ch, self.kernel_size))
-
-    def forward(self, prev_output, context, hidden_state):
+    def init_hidden(self, batch_size, H, W, device):
+        """
+        Initialize hidden states for all layers
+        """
+        hidden_state = []
+        for i in range(self.num_layers):
+            hidden_state.append(torch.zeros(batch_size, self.hidden_channels[i], H, W, device=device))
+        return hidden_state
+    
+    def forward(self, context, hidden_state):
         """
         Args:
           prev_output: (B, C_prev, H, W)
@@ -124,7 +133,8 @@ class TimeSeriesMemoryConvGRU(nn.Module):
         """
         # 1) Prepare input for layer-0 by concatenating prev_output & context
         #    shape => (B, C_prev + C_ctx, H, W)
-        x = torch.cat([prev_output, context], dim=1)
+        # x = torch.cat([prev_output, context], dim=1)
+        x = context
 
         # hidden_state is shape: (num_layers, B, C_hid, H, W)
         # We'll store updated hidden states in a list
@@ -149,6 +159,6 @@ class TimeSeriesMemoryConvGRU(nn.Module):
         updated_memory = new_hidden_list[-1]
         
         # 4) Stack new hidden states into shape (num_layers, B, C_hid, H, W)
-        updated_hidden = torch.stack(new_hidden_list, dim=0)
+        updated_hidden = new_hidden_list
         
         return updated_memory, updated_hidden

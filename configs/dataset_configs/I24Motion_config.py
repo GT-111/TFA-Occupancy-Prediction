@@ -20,7 +20,7 @@ keys_to_use = ['_id', 'timestamp', 'x_position', 'y_position', 'length', 'width'
 
 # ============= Task General Parameters =================
 history_length = 100
-num_his_points = 10
+num_his_points = 5
 prediction_length = 400
 num_waypoints = 20
 
@@ -29,10 +29,10 @@ occupancy_flow_map_height = 96  # y axis
 occupancy_flow_map_width = 512 # x axis
 vehicle_points_per_side_length = 48 # the number of points in the vehicle length direction
 vehicle_points_per_side_width = 16 # the number of points in the vehicle width direction
-spatial_window = 1400 # the size of the spatial window in feet
-spatial_stride = spatial_window // 5
+spatial_window = 1000 # the size of the spatial window in feet
+spatial_stride = spatial_window // 4
 temporal_window = history_length + prediction_length # the size of the temporal window in seconds
-temporal_stride = temporal_window // 5
+temporal_stride = temporal_window // 4
 # ============= Trajectory Parameters =================
 node_features_list = ['timestamp', 'x_position', 'y_position', 'x_velocity', 'y_velocity', 'yaw_angle']
 vector_features_list = ['length', 'width', 'direction']

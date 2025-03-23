@@ -4,7 +4,7 @@ import torch
 import warnings
 import argparse
 # import model
-from models.AROccFlowNet.occupancy_flow_model import AROccFlowNet
+from models.AROccFlowNet.occupancy_flow_model_one_step import AROccFlowNetOneStep
 # import loss and metrics
 from evaluation.losses.trajectory_loss import TrajectoryLoss
 from evaluation.metrics.trajectory_metrics import TrajectoryMetrics
@@ -45,7 +45,7 @@ def setup(config, gpu_id, enable_ddp=True):
     """
     # //[ ] The model config need to be updated if the model is changed
     model_config = config.models
-    model = AROccFlowNet(model_config.aroccflownet).to(gpu_id)
+    model = AROccFlowNetOneStep(model_config.aroccflownet).to(gpu_id)
     if enable_ddp:
         model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
 
@@ -123,8 +123,10 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
     trajectory_metrics = TrajectoryMetrics(gpu_id)
     if enable_ddp:
         test_dataloader.sampler.set_epoch(continue_ep)
+
     with torch.no_grad():
         loop = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
+        
         for batch_idx, data in loop:
             
             input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
@@ -133,73 +135,44 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             ground_truth_dict = ground_truth_dict['cur']
             # get the input
             his_occupancy_map = input_dict['his/observed_occupancy_map']
-            his_flow_map = input_dict['his/flow_map']
-            his_observed_agent_features = input_dict['his/observed_agent_features']
-            flow_origin_occupancy = input_dict['flow_origin_occupancy_map']
             his_valid_mask = input_dict['his/valid_mask']
-            agent_types = input_dict['agent_types']
             # get the ground truth
-            gt_occluded_occupancy_logits = ground_truth_dict['pred/occluded_occupancy_map']
             gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
-            gt_flow = ground_truth_dict['pred/flow_map']
-            gt_trajectories = ground_truth_dict['pred/trajectories']
+            _, height, width, num_waypoints, _ = gt_observed_occupancy_logits.shape
             gt_valid_mask = ground_truth_dict['pred/valid_mask']
             gt_occupancy_flow_map_mask = torch.sum(gt_valid_mask, dim=-2) > 0
-            pred_observed_occupancy_logits, pred_flow_logits = model.forward(his_occupancy_map, his_flow_map, his_observed_agent_features, agent_types, his_valid_mask)
-            # np.save('gt_observed_occupancy_logits.npy', gt_observed_occupancy_logits.cpu().numpy())
-            # np.save('pred_observed_occupancy_logits.npy', pred_observed_occupancy_logits.cpu().numpy())
-        #     occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(
-        #         pred_observed_occupancy_logits, 
-        #         pred_occluded_occupancy_logits, 
-        #         pred_flow_logits, 
-        #         gt_observed_occupancy_logits, 
-        #         gt_occluded_occupancy_logits, 
-        #         gt_flow, 
-        #         flow_origin_occupancy,
-        #         gt_occupancy_flow_map_mask,
-        #     )
-        #     trajectory_loss_dict = trajectory_loss.compute(
-        #         predicted_trajectories, 
-        #         predicted_trajectories_score, 
-        #         gt_trajectories, 
-        #         gt_valid_mask
-        #     )
-        #     occupancy_flow_map_metrics_dict = occupancy_flow_map_metrics.compute(
-        #         pred_observed_occupancy_logits, 
-        #         pred_occluded_occupancy_logits, 
-        #         pred_flow_logits, 
-        #         gt_observed_occupancy_logits, 
-        #         gt_occluded_occupancy_logits, 
-        #         gt_flow, 
-        #         flow_origin_occupancy, 
-        #         gt_occupancy_flow_map_mask,
-        #     )
-        #     trajectory_metrics_dict = trajectory_metrics.compute(
-        #         predicted_trajectories, 
-        #         gt_trajectories, 
-        #         gt_valid_mask
-        #     )
-        #     occupancy_flow_map_metrics.update(occupancy_flow_map_metrics_dict)
-        #     trajectory_metrics.update(trajectory_metrics_dict)
-        #     occupancy_flow_map_loss.update(occupancy_flow_map_loss_dict)
-        #     trajectory_loss.update(trajectory_loss_dict)
-        # occupancy_flow_map_loss_res_dict = occupancy_flow_map_loss.get_result()
-        # trajectory_loss_res_dict = trajectory_loss.get_result()
-        # occupancy_flow_map_metrics_res_dict = occupancy_flow_map_metrics.get_result()
-        # trajectory_metrics_res_dict = trajectory_metrics.get_result()
-        # if gpu_id == 0:
-        #     logger.add_scalars(main_tag="test_occupancy_flow_map_metrics", tag_scalar_dict=occupancy_flow_map_metrics_res_dict, global_step=global_step)
-        #     logger.add_scalars(main_tag="test_trajectory_metrics", tag_scalar_dict=trajectory_metrics_res_dict, global_step=global_step)
-        #     logger.add_scalars(main_tag="test_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)
-        #     logger.add_scalars(main_tag="test_trajectory_trajectory_loss", tag_scalar_dict=trajectory_loss_res_dict, global_step=global_step)
-        
+
+            pred_observed_occupancy_logits = []
+            for time_step in range(num_waypoints):
+                pred_one_step_occupancy_map = model.forward(his_occupancy_map)
+                # //TODO: Postprocess the occupancy map
+                def postprocess_occupancy_map(pred_map):
+                    min_val = pred_map.amin(dim=(1, 2, 3), keepdim=True)
+                    max_val = pred_map.amax(dim=(1, 2, 3), keepdim=True)
+                    norm_map = (pred_map - min_val) / (max_val - min_val + 1e-6)
+                    binary_map = (norm_map > 0.5).float()
+                    return pred_map
+                pred_one_step_occupancy_map = postprocess_occupancy_map(pred_one_step_occupancy_map)
+
+                pred_observed_occupancy_logits.append(pred_one_step_occupancy_map)
+                his_occupancy_map = torch.cat([his_occupancy_map[:, :, :, 1:, :], pred_one_step_occupancy_map], dim=-2)
+
+            pred_observed_occupancy_logits = torch.cat(pred_observed_occupancy_logits, dim=-2)
+            # pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
+            occupancy_flow_map_metrics_dict = occupancy_flow_map_metrics.compute_occupancy_metrics(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
+            np.save('gt_observed_occupancy_logits.npy', gt_observed_occupancy_logits.cpu().numpy())
+            np.save('pred_observed_occupancy_logits.npy', pred_observed_occupancy_logits.cpu().numpy())
+            if gpu_id == 0:
+                # logger.add_scalars(main_tag="test_occupancy_flow_map_metrics", tag_scalar_dict=occupancy_flow_map_metrics_dict, global_step=global_step)
+                print(f'vehicles_observed_occupancy_auc: {occupancy_flow_map_metrics_dict["vehicles_observed_occupancy_auc"]}')
+                print(f'vehicles_observed_occupancy_iou: {occupancy_flow_map_metrics_dict["vehicles_observed_occupancy_iou"]}')
     destroy_process_group()
 
 
 if __name__ == "__main__":
     # ============= Parse Argument =============
     parser = argparse.ArgumentParser(description="options")
-    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetS.py", help="config file")
+    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetOneStepS.py", help="config file")
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)

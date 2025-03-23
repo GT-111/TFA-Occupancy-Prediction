@@ -143,6 +143,58 @@ class UNetDecoder(nn.Module):
         flow_map = einops.rearrange(self.flow_map_decoder(x), '(b t) c h w -> b h w t c', b=b, t=t)
         
         return observed_occupancy_map, flow_map
+
+class UNetDecoder2D(nn.Module):
+    """U-Net decoder for multi-scale feature fusion."""
+    def __init__(self, embed_dims):
+        super(UNetDecoder2D, self).__init__()
+        
+
+        self.upsample_blocks = nn.ModuleList([
+            self._upsample_block(embed_dims[i], embed_dims[i-1])
+            for i in range(len(embed_dims)-1, 0, -1)
+        ])
+        
+        self.final_upsample1 = nn.Upsample(scale_factor=(2,2))
+        self.final_conv = nn.Conv2d(embed_dims[0], embed_dims[0]//2, kernel_size=1)
+        self.final_upsample2 = nn.Upsample(scale_factor=(2,2))
+        
+    def _upsample_block(self, in_channels, out_channels):
+        """
+        Ensures the upsampled feature map matches the skip connection size.
+        """
+        return nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2),  # Upsample
+            nn.Conv2d(out_channels * 2, out_channels, kernel_size=3, padding=1),  # Reduce channels
+            nn.ReLU(inplace=True)
+        )
+
+
+    def forward(self, x, features, features_only=False):
+        
+        
+        for i, up_block in enumerate(self.upsample_blocks):
+            skip = features[-(i+2)]  # Get corresponding skip connection
+
+            # 🔹 1. First, upsample x
+            x = up_block[0](x)  # ConvTranspose2d
+
+
+            # 🔹 2. Concatenate with the skip connection
+            x = torch.cat([x, skip], dim=1)
+
+            # 🔹 3. Apply refinement convolution
+            x = up_block[1](x)
+        
+        # 🔹 4. Apply final convolutio
+        x = self.final_upsample1(x)
+        if features_only:
+            return x
+        x = self.final_conv(x)
+        x = self.final_upsample1(x)
+        
+        
+        return x
     
 from configs.utils.config import load_config
 # Example usage:
@@ -150,17 +202,20 @@ if __name__ == '__main__':
     config = load_config('configs/model_configs/AROccFlowNetS.py')
     model_config = config.models.aroccflownet.unet_decoder
     
-    decoder = UNetDecoder(model_config)
+    # decoder = UNetDecoder(model_config)
+    decoder_2d = UNetDecoder2D(model_config.embed_dims)
     embed_dims = model_config.embed_dims
     b, t = 2, 20
     # x from the bottleneck: (b, t, d, h//16, w//16)
     x = torch.randn(b, t, embed_dims[-1], 6, 32)
+    x_2d = torch.randn(b, embed_dims[-1], 6, 32)
     print(x.shape)
     # Skip features (make sure spatial sizes match after upsampling):
     feat_high = torch.randn(b, embed_dims[0], 24, 128)  # highest resolution (h//4, w//4)
     feat_mid  = torch.randn(b, embed_dims[1], 12, 64)  # mid resolution (h//8, w//8)
     feat_low  = torch.randn(b, embed_dims[2], 6, 32)  # lowest resolution (h//16, w//16)
     features = [feat_high, feat_mid, feat_low]
-
-    observed_occupancy_map, flow_map = decoder(x, features)
-    print(observed_occupancy_map.shape, flow_map.shape)
+    observed_occupancy_map = decoder_2d(x_2d, features)
+    print(observed_occupancy_map.shape)
+    # observed_occupancy_map, flow_map = decoder(x, features)
+    # print(observed_occupancy_map.shape, flow_map.shape)

@@ -210,6 +210,8 @@ class I24MotionDatasetFile():
             'x_position': self.convert(vehicles_x),
             'y_position': self.convert(vehicles_y),
             'yaw_angle': self.convert(vehicles_yaw_angle),
+            'x_velocity': self.convert(vehicles_x_velocity),
+            'y_velocity': self.convert(vehicles_y_velocity),
             # 'start_pos': spatial_start,
             # 'start_time': temporal_start,
         }
@@ -240,8 +242,10 @@ class I24MotionDatasetFile():
         x_position = feature_dic['x_position'][observed_idx]
         y_position = feature_dic['y_position'][observed_idx]
         timestamp = feature_dic['timestamp'][observed_idx]
-        vehicle_x_velocity_cur = (x_position - x_position.shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
-        vehicle_y_velocity_cur = (y_position.values - y_position.shift(1).values) / (timestamp - np.roll(timestamp, shift=1))
+        vehicle_x_velocity_cur = (x_position - np.roll(x_position, shift=1)) / (timestamp - np.roll(timestamp, shift=1))
+        vehicle_y_velocity_cur = (y_position - np.roll(y_position, shift=1)) / (timestamp - np.roll(timestamp, shift=1))
+        vehicle_x_velocity_cur = vehicle_x_velocity_cur[:, 1:]
+        vehicle_y_velocity_cur = vehicle_y_velocity_cur[:, 1:]
         observed_trajectories = np.stack([vehicle_x_velocity_cur, vehicle_y_velocity_cur], axis = -1)
         observed_trajectories = np.nan_to_num(observed_trajectories)
         valid_mask = feature_dic['timestamp'][observed_idx] > 0
@@ -293,7 +297,7 @@ class I24MotionDatasetFile():
 
         # Get feature dictionaries and add occupancy and flow maps
         prv_feature_dic, cur_feature_dic, nxt_feature_dic = self.get_feature_dics(idx)
-        if cur_feature_dic['num_vehicles'] <= 5 or prv_feature_dic['num_vehicles'] <= 10 or nxt_feature_dic['num_vehicles'] <= 5:
+        if cur_feature_dic['num_vehicles'] <= 5 or prv_feature_dic['num_vehicles'] <= 5 or nxt_feature_dic['num_vehicles'] <= 5:
             # print(f'Skipping scene {idx} due to low vehicle count.')
             # print(f'cur: {cur_feature_dic["num_vehicles"]}, prv: {prv_feature_dic["num_vehicles"]}, nxt: {nxt_feature_dic["num_vehicles"]}')
             return

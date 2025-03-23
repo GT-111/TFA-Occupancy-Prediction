@@ -66,7 +66,7 @@ class ConvNeXtFeatureExtractor(nn.Module):
             nn.Conv3d(in_channels=self.embed_dims[0], out_channels=self.embed_dims[0], kernel_size=(self.flow_temporal_depth, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1)),
             nn.ReLU(inplace=True)
             )
-    def forward(self, occupancy_map, flow_map):
+    def forward(self, occupancy_map, flow_map=None):
         """
         Extracts multi-scale features from ConvNeXt.
         occupancy_map: (B, H, W, T, C)
@@ -81,7 +81,8 @@ class ConvNeXtFeatureExtractor(nn.Module):
         occupancy_map_embedding = self.patch_embedding_occupancy_map(occupancy_map.reshape(batch_size, height, width, temporal_depth))
         occupancy_map_embedding = einops.rearrange(occupancy_map_embedding, 'b h w c -> b c h w')
         # occupancy_map_embedding = self.occupancy_conv(occupancy_map_embedding)
-        
+        if flow_map is None:
+            return self.convnext.forward_intermediates(occupancy_map_embedding, indices=self.indicies, intermediates_only=True)
         flow_map = einops.rearrange(flow_map, 'b h w t c -> (b t) h w c')
         flow_map_embedding = self.patch_embedding_flow_map(flow_map)
         flow_map_embedding = einops.rearrange(flow_map_embedding, '(b t) h w c -> b c t h w', b=batch_size)
@@ -116,7 +117,7 @@ class UNetDecoder(nn.Module):
         )
 
 
-    def forward(self, x, features, pos_embeddings):
+    def forward(self, x, features):
         
         
         for i, up_block in enumerate(self.upsample_blocks):
