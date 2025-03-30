@@ -1,19 +1,15 @@
 import einops
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from configs.utils.config import load_config
-from datasets.I24Motion.utils.generate_test_data import SampleModelInput
-from models.AROccFlowNet.occupancy_flow_model_one_step import AROccFlowNetOneStep
+from models.AROccFlowNet.occupancy_flow_model_one_step_three_scene import AROccFlowNetOneStepContext
 from models.AROccFlowNet.conv_gru import ConvGRU
-import random
-from models.AROccFlowNet.lookup import MemoryModule
-class AutoRegWrapper(nn.Module):
+
+class AutoRegWrapperContext(nn.Module):
 
     def __init__(self, config):
         super().__init__()
         models_config = config
-        self.backbone = AROccFlowNetOneStep(models_config.backbone_model_config)
+        self.backbone = AROccFlowNetOneStepContext(models_config.backbone_model_config)
         self._load_pretrained_backbone(models_config.pretrained_backbone_path)
         self._freeze_backbone()
         self.embed_dims = self.backbone.embed_dims
@@ -44,17 +40,16 @@ class AutoRegWrapper(nn.Module):
         self.backbone.load_state_dict(new_state_dict, strict=True)
 
 
-    def forward(self, his_occupancy_map, grond_truth_occupancy_map=None, tf_prob=0.0, training=False):
+    def forward(self, prv_occupancy_map, cur_occupancy_map, nxt_occupancy_map, gt_prv_occupancy_map, gt_nxt__occupancy_map, training=False):
         # //TODO: Modity the input to take his_occupancy_map, his_flow_map, his_observed_agent_features, his_valid_mask, agent_types
         # device = his_occupancy_map.device
-        cur_occpancy_map = his_occupancy_map
         # batch_size, height, width, _, _ = cur_occpancy_map.shape
         h_hidden = None
         occupancy_map_list = []
         
         for timestep in range(self.num_waypoints):
             with torch.no_grad():
-                fused_features = self.backbone.forward(cur_occpancy_map, features_only=True)
+                fused_features = self.backbone.forward(prv_occupancy_map, cur_occupancy_map, nxt_occupancy_map, features_only=True)
 
             h_hidden = self.conv_gru.forward(fused_features, h_hidden)
             # updated_fused_features = self.memory_lookup.forward(fused_features)
@@ -63,17 +58,12 @@ class AutoRegWrapper(nn.Module):
             # res_features = torch.cat([fused_features, updated_fused_features, h_hidden[-1]], dim=1)
             occupancy_map = einops.rearrange(self.occupancy_map_decoder(torch.cat([fused_features, h_hidden[-1]], dim=1)), 'b c h w -> b h w 1 c')
             # Teacher forcing
-            if training and (grond_truth_occupancy_map is not None):
-                if random.random() < tf_prob:
-                    gt_frame = grond_truth_occupancy_map[..., timestep:timestep+1, :] # (B,H,W,1,C) or (B,H,W,1) 
-                    next_frame = gt_frame
-                else:
-                    next_frame = occupancy_map
-            else:
-                next_frame = occupancy_map
+            
                 
             occupancy_map_list.append(occupancy_map)
-            cur_occpancy_map = torch.cat([cur_occpancy_map[..., 1:, :], next_frame], dim=-2)
+            cur_occupancy_map = torch.cat([cur_occupancy_map[..., 1:, :], occupancy_map], dim=-2)
+            prv_occupancy_map = torch.cat([prv_occupancy_map[..., 1:, :], gt_prv_occupancy_map[..., timestep:timestep+1, :]], dim=-2)
+            nxt_occupancy_map = torch.cat([nxt_occupancy_map[..., 1:, :], gt_nxt__occupancy_map[..., timestep:timestep+1, :]], dim=-2)
 
         occupancy_map_res = torch.cat(occupancy_map_list, dim=-2)
 
@@ -81,15 +71,4 @@ class AutoRegWrapper(nn.Module):
 
 
 if __name__ == '__main__':
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # ============= Load Configuration =============
-    config = load_config('configs/model_configs/AROccFlowNetAutoRegressive.py')
-    model_config = config.models
-    model = AutoRegWrapper(model_config.auto_regressive_predictor).to(device)
-    dataset_config = config.dataset_config
-    sample_data_generator = SampleModelInput(dataset_config)
-    test_input = sample_data_generator.generate_sample_input(device=device)
-    # ============= Test Forward =============
-    his_occupancy_map = test_input['cur/his/occupancy_map']
-    ground_truth_occupancy_map = test_input['cur/pred/occupancy_map']
-    model.forward(his_occupancy_map, ground_truth_occupancy_map, training=True)
+    pass

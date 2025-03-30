@@ -94,6 +94,23 @@ def parse_outputs(outputs, train):
 
         return pred_observed_occupancy_logits, pred_flow_logits
     
+
+def parse_outputs_OFMPNet(outputs, train):
+    """
+    Parse model outputs
+    """
+    pred_observed_occupancy_logits = outputs[..., 0:1]
+    pred_occluded_occupancy_logits = outputs[..., 1:2]
+    pred_flow_logits = outputs[..., 2:4]
+    if train:
+        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits
+    
+    else:
+        pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
+        pred_occluded_occupancy_logits = torch.sigmoid(pred_occluded_occupancy_logits)
+
+        return pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits
+    
     
     
 

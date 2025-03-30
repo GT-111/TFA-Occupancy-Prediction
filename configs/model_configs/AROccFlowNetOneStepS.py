@@ -8,7 +8,7 @@ import os
 
 from evaluation import losses
 from evaluation.losses import occupancy_flow_map_loss, trajectory_loss
-from models.AROccFlowNet import memory_gru, unet_decoder
+from models.AROccFlowNet import conv_gru, unet_decoder
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================

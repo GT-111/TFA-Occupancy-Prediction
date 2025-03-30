@@ -9,19 +9,17 @@ class Pyramid3DDecoder(nn.Module):
     def __init__(self, config):
         super(Pyramid3DDecoder, self).__init__()
 
-        self.shallow_decode = config.model.Pyramid3DDecoder.shallow_decode
-        self.pic_dim = config.model.Pyramid3DDecoder.pic_dim
-        
-
+        self.shallow_decode = config.shallow_decode
+        self.pic_dim = config.pic_dim
         decode_inds = [4, 3, 2, 1, 0][self.shallow_decode:]
         decoder_channels = [48, 96, 128, 192, 384]
-        self.stp_grad = config.model.Pyramid3DDecoder.stp_grad
-        self.rep_res = config.model.Pyramid3DDecoder.rep_res
-        self.conv_cnn = config.model.Pyramid3DDecoder.conv_cnn
-        self.flow_sep_decode = config.model.Pyramid3DDecoder.flow_sep_decode
-        self.sep_conv = config.model.Pyramid3DDecoder.sep_conv
-        self.use_pyramid = config.model.Pyramid3DDecoder.use_pyramid
-        self.num_waypoints = config.task_config.num_waypoints
+        self.stp_grad = config.stp_grad
+        self.rep_res = config.rep_res
+        self.conv_cnn = config.conv_cnn
+        self.flow_sep_decode = config.flow_sep_decode
+        self.sep_conv = config.sep_conv
+        self.use_pyramid = config.use_pyramid
+        self.num_waypoints = config.num_waypoints
         #traj-rrc
 
         conv2d_kwargs = {
@@ -108,10 +106,11 @@ class Pyramid3DDecoder(nn.Module):
                             stride=1,
                             padding="same"
                         ), nn.ELU()
-                    ) for i in decode_inds[:3-self.shallow_decode] [3, 2, 1, 0]
+                    ) for i in decode_inds[:3-self.shallow_decode] # 3, 2, 1, 0]
                 ])
             self.ind_list=[2,1,0][self.shallow_decode:]
-            self.reshape_dim = [16,32,64][self.shallow_decode:]
+            self.reshape_dim_h = [16,6,12][self.shallow_decode:]
+            self.reshape_dim_w = [16,32,64][self.shallow_decode:]
 
         
         
@@ -172,7 +171,7 @@ class Pyramid3DDecoder(nn.Module):
                 if self.stp_grad:
                     res_flat = res_flat.detach()
                 h = res_flat.size()[-1]
-                res_flat = torch.reshape(res_flat,[-1,self.num_waypoints,self.reshape_dim[i],self.reshape_dim[i],h])
+                res_flat = torch.reshape(res_flat,[-1,self.num_waypoints,self.reshape_dim_h[i],self.reshape_dim_w[i],h])
                 res_flat = res_flat.permute(0,4,1,2,3) # B, C, D, H, W
                 x = x + self.res_layer[i](res_flat).permute(0,2,3,4,1)
 

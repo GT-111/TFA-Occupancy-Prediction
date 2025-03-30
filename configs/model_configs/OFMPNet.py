@@ -1,27 +1,16 @@
-from enum import auto
-from random import shuffle
-import sched
-from tabnanny import check
-from turtle import back
-
-from lark import logger
 from configs.utils.config import load_config
 import os
 
-from evaluation import losses
-from evaluation.losses import occupancy_flow_map_loss, trajectory_loss
-from models.AROccFlowNet import conv_gru, unet_decoder
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================
-project_name = 'AROccFlowNetAutoRegressiveS'
+project_name = 'OFMPNet'  # Name of your project
+# checkpoints = "./checkpoints/"
+# logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
 project_dir = os.path.join(exp_dir, project_name)
 # ============= Dataset Parameters=================
 dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
-backbone_config = load_config("configs/model_configs/AROccFlowNetOneStepS.py")
-backbone_model_config = backbone_config.models.aroccflownet
-
 occupancy_flow_map_config = dataset_config.occupancy_flow_map
 occupancy_flow_map_height = occupancy_flow_map_config.occupancy_flow_map_height
 occupancy_flow_map_width = occupancy_flow_map_config.occupancy_flow_map_width
@@ -35,19 +24,18 @@ generated_data_path = paths_config.generated_data_path
 total_data_samples = 30000
 # ============= Model Parameters =================
 input_dim = 3 # occupancy, flow_x, flow_y
-hidden_dim = 128
+hidden_dim = 96
 num_states = 9# TODO: Define the number of states
 num_heads = 4
 dropout_prob=0.1
 num_motion_mode=6 # number of future motion modes
-embed_dims = (96, 192, 384, 768)
-depths = (3, 3, 9, 3)
+
 shallow_decode = 1
 # ============= Train Parameters =================
 num_machines = 1
 gpu_ids = [0,1]
 max_epochs = 30
-batch_size = 8
+batch_size = 2
 # ============= Optimizer Parameters =================
 optimizer_type = 'AdamW'
 optimizers_dic = dict(
@@ -110,27 +98,104 @@ config = dict(
             shuffle=False,
         ),
         test=dict(
-            batch_size=batch_size,
+            batch_size=1,
             num_workers=1,
             shuffle=False,
         ),
     ),
     models=dict(
-        auto_regressive_predictor=dict(
-            num_waypoints=num_waypoints,
+        ofmpnet=dict(
+            input_size=(occupancy_flow_map_height, occupancy_flow_map_width),
+            history_length=num_his_points,  # Number of historical frames
 
-            backbone_model_config=backbone_model_config,
-            pretrained_backbone_path='/hdd/HetianGuo/MotionPrediction/OccupancyFLowPrediction/Occupancy-FLow-Prediction/exp/AROccFlowNetOneStepS/checkpoints/epoch_30.pth',
+            num_waypoints=num_waypoints,  # Number of waypoints to predict
+            swin_transformer=dict(
+                input_size=(occupancy_flow_map_height, occupancy_flow_map_width),
+                history_length=num_his_points, 
+                patch_size=[4, 4],  # Patch size for the Swin Transformer
+                embedding_dimension=hidden_dim,
+                transformer_depths=[2, 2, 1],  # Depths of the transformer layers
+                window_size=4,
+                attention_heads=[3, 6 , 12],
+                mlp_ratio=4.,  # hidden size ratio
+                drop_path_rate=0.0,
+                # Encoder Settings
+                use_flow=False,
+                flow_sep=True,
+                sep_encode=True,
+                no_map=True,  # not using the map
+                ape=True,  # Absolute Position Embedding
+                patch_norm=True,
+                large_input=False,
+                use_checkpoint=True,
 
-            memory_gru=dict(
-                hidden_channels=[hidden_dim, embed_dims[0]//2],
-                kernel_size=3,
-                num_layers=2,
-                context_channels=embed_dims[0],
+                basic_layer=dict(
+                    qk_scale=None,
+                    qkv_bias=True,
+                    drop_rate=0.0,
+                    attn_drop_rate=0.0,
+                ),
+            ),
+            fg_msa=True,
+            FlowGuidedMultiHeadSelfAttention=dict(
+            # input size should be the output size of the previous layer
+              query_size=[6,32],
+              key_value_size=[6,32],
+              num_attention_heads=8,
+              num_attention_head_channels=48, # attention head channels * num heads should be the same as the input dimension
+              num_groups=8,
+              input_dimension=4*hidden_dim, # 4 * swin_transformer.embed_dim
+              output_dimension=4*hidden_dim,
+              attn_drop=0.,
+              proj_drop=0.,
+              stride=1,
+              offset_range_factor=2,
+              use_positional_encoding=True,
+              dwc_pe=False,
+              no_offset=False,
+              fixed_positional_encoding=False,
+              stage_idx=3,
+              use_last_ref=False,
+              fg=True,
+            ),
+
+            TrajNetCrossAttention=dict(
+                num_waypoints=num_waypoints,  # Number of waypoints to predict
+                pic_size=[6,32],
+                pic_dim=4*hidden_dim,
+                sep_actors=False,
+                CrossAttention=dict(
+                # key dimension * num heads should be the same as the input dimension
+                  key_dimension=48, # This should match the output dimension of the previous layer
+                  num_heads=8,
+                ),
+                TrajNet=dict(
+                    TrajEncoder=dict(
+                        node_feature_dim=6,
+                        vector_feature_dim=3,
+                        att_heads=6,
+                        out_dim=4*hidden_dim,
+                    ),
+                    no_attention=False,
+                    double_net=False,
+                    
+                    att_heads=6,
+                    out_dim=4*hidden_dim,
+              ),
+            ),
+            Pyramid3DDecoder=dict(
+              pic_dim=4*hidden_dim,
+              use_pyramid=True,
+              timestep_split=True,
+              shallow_decode=1, # (4-len(cfg['depths'][:])),,
+              flow_sep_decode=True,
+              conv_cnn=False,
+              stp_grad=False,
+              rep_res=True,
+              sep_conv=False,
+              num_waypoints=num_waypoints,  # Number of waypoints to predict
             ),
         ),
-        
-        
     ),
     losses=dict(
         occupancy_flow_map_loss=dict(

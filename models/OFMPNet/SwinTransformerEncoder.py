@@ -352,39 +352,39 @@ class SwinTransformerEncoder(torch.nn.Module):
         """
 
         # if the occ map is larger than road map
-        self.large_input= config.model.swin_transformer.large_input
-        self.transformer_depths = config.model.transformer_depths
-        self.attention_heads = config.model.swin_transformer.attention_heads
+        self.large_input= config.large_input
+        self.transformer_depths = config.transformer_depths
+        self.attention_heads = config.attention_heads
         self.num_layers = len(self.transformer_depths)
-        self.history_length = config.model.history_length
-        self.input_size = config.model.input_size
-        self.embedding_dimension = config.model.swin_transformer.embedding_dimension
-        self.ape = config.model.swin_transformer.ape
-        self.patch_norm = config.model.swin_transformer.patch_norm
+        self.history_length = config.history_length
+        self.input_size = config.input_size
+        self.embedding_dimension = config.embedding_dimension
+        self.ape = config.ape
+        self.patch_norm = config.patch_norm
         self.num_features = int(self.embedding_dimension * 2 ** (self.num_layers - 1))
-        self.mlp_ratio = config.model.swin_transformer.mlp_ratio
-        self.flow_sep = config.model.swin_transformer.flow_sep
-        self.no_map = config.model.swin_transformer.no_map
+        self.mlp_ratio = config.mlp_ratio
+        self.flow_sep = config.flow_sep
+        self.no_map = config.no_map
 
-        self.use_flow = config.model.swin_transformer.use_flow
-        self.large_input = config.model.swin_transformer.large_input
-        self.patch_size = config.model.swin_transformer.patch_size
-        self.window_size = config.model.swin_transformer.window_size
+        self.use_flow = config.use_flow
+        self.large_input = config.large_input
+        self.patch_size = config.patch_size
+        self.window_size = config.window_size
         self.norm_layer = torch.nn.LayerNorm
-        self.use_checkpoint = config.model.swin_transformer.use_checkpoint
-        self.drop_path_rate = config.model.swin_transformer.drop_path_rate
+        self.use_checkpoint = config.use_checkpoint
+        self.drop_path_rate = config.drop_path_rate
 
         # self.qk_scale = config.model.swin_transformer.basic_layer.qk_scale
         self.qk_scale = None
-        self.qkv_bias = config.model.swin_transformer.basic_layer.qkv_bias
-        self.drop_rate = config.model.swin_transformer.basic_layer.drop_rate
-        self.attn_drop_rate = config.model.swin_transformer.basic_layer.attn_drop_rate
+        self.qkv_bias = config.basic_layer.qkv_bias
+        self.drop_rate = config.basic_layer.drop_rate
+        self.attn_drop_rate = config.basic_layer.attn_drop_rate
         # split image into non-overlapping patches
         self.patch_embed_vecicle = PatchEmbed(
             img_size=self.input_size, patch_size=self.patch_size, in_chans=self.history_length, embed_dim=self.embedding_dimension,
             norm_layer=self.norm_layer if self.patch_norm else None)
             
-        self.sep_encode=config.model.swin_transformer.sep_encode
+        self.sep_encode=config.sep_encode
 
         num_patches = self.patch_embed_vecicle.num_patches
         patches_resolution = self.patch_embed_vecicle.patches_resolution
@@ -514,7 +514,7 @@ class SwinTransformerEncoder(torch.nn.Module):
                 res_list.append(flow_res)
             if self.large_input:
                 init_res = 128 // (2**i)
-                dim = self.self.embedding_dimension * (2**i)
+                dim = self.embedding_dimension * (2**i)
                 crop = init_res // 2
                 c_b,c_e = int(init_res*0.25),int(init_res*0.75)
                 res = torch.reshape(torch.reshape(res,[-1,init_res,init_res,dim])[:,c_b:c_e,c_b:c_e,:],[-1,crop*crop,dim])

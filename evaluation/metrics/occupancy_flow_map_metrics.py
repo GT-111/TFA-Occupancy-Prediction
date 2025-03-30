@@ -37,7 +37,7 @@ class OccupancyFlowMapMetrics(Metrics):
 	def compute_occupancy_metrics(self,
 		pred_observed_occupancy_logits,
 		gt_observed_occupancy_logits,
-		gt_mask):
+		gt_mask, mean=True):
 
 		metrics_dict = {
 			'vehicles_observed_occupancy_auc': [],
@@ -57,8 +57,9 @@ class OccupancyFlowMapMetrics(Metrics):
 				_compute_occupancy_soft_iou(true_observed_occupancy * mask, pred_observed_occupancy * mask))
 
 		# Compute means and return as proto message.
-		metrics_dict = {k: _mean(v) for k, v in metrics_dict.items()}
-
+		if mean:
+			metrics_dict = {k: _mean(v) for k, v in metrics_dict.items()}
+		
 		return metrics_dict
 	def compute(self, pred_observed_occupancy_logits ,
 				pred_occluded_occupancy_logits,

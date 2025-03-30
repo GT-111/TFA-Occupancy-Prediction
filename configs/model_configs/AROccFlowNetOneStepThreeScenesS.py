@@ -1,8 +1,6 @@
-from enum import auto
 from random import shuffle
 import sched
 from tabnanny import check
-from turtle import back
 
 from lark import logger
 from configs.utils.config import load_config
@@ -14,14 +12,13 @@ from models.AROccFlowNet import conv_gru, unet_decoder
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================
-project_name = 'AROccFlowNetAutoRegressiveS'
+project_name = 'AROccFlowNetOneStepThreeScenesS'
+# checkpoints = "./checkpoints/"
+# logs = "./logs/"
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
 project_dir = os.path.join(exp_dir, project_name)
 # ============= Dataset Parameters=================
 dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
-backbone_config = load_config("configs/model_configs/AROccFlowNetOneStepS.py")
-backbone_model_config = backbone_config.models.aroccflownet
-
 occupancy_flow_map_config = dataset_config.occupancy_flow_map
 occupancy_flow_map_height = occupancy_flow_map_config.occupancy_flow_map_height
 occupancy_flow_map_width = occupancy_flow_map_config.occupancy_flow_map_width
@@ -110,27 +107,62 @@ config = dict(
             shuffle=False,
         ),
         test=dict(
-            batch_size=batch_size,
+            batch_size=1,
             num_workers=1,
             shuffle=False,
         ),
     ),
     models=dict(
-        auto_regressive_predictor=dict(
+        aroccflownet=dict(
+            map_height = occupancy_flow_map_height,
+            map_width = occupancy_flow_map_width,
             num_waypoints=num_waypoints,
-
-            backbone_model_config=backbone_model_config,
-            pretrained_backbone_path='/hdd/HetianGuo/MotionPrediction/OccupancyFLowPrediction/Occupancy-FLow-Prediction/exp/AROccFlowNetOneStepS/checkpoints/epoch_30.pth',
-
-            memory_gru=dict(
-                hidden_channels=[hidden_dim, embed_dims[0]//2],
-                kernel_size=3,
-                num_layers=2,
-                context_channels=embed_dims[0],
+            hidden_dim=hidden_dim,
+            nhead=num_heads,
+            dropout_prob=dropout_prob,
+            num_layers=2,
+            
+            convnext=dict(
+                hidden_dim=hidden_dim,
+                out_channels=hidden_dim,
+                shallow_decode=shallow_decode, # deepest layer index should be less than len(embed_dims)-1
+                embed_dims = embed_dims,
+                depths = depths,
+                flow_temporal_depth=num_his_points - 1,
+                patch_embedding_occupancy_map=dict(
+                    img_size=(occupancy_flow_map_height, occupancy_flow_map_width),
+                    patch_size=(4, 4),
+                    in_chans=num_his_points,
+                    embed_dim=embed_dims[0],
+                ),
+                patch_embedding_flow_map=dict(
+                    img_size=(occupancy_flow_map_height, occupancy_flow_map_width),
+                    patch_size=(4, 4),
+                    in_chans=2,
+                    embed_dim=embed_dims[0],
+                ),
+            ),
+            
+            motionpredictor=dict(
+                num_states=num_states,
+                hidden_dim=embed_dims[-shallow_decode-1],
+                num_heads=num_heads,
+                dropout_prob=dropout_prob,
+                num_layers=1,
+                num_motion_mode=num_motion_mode,
+                num_waypoints=num_waypoints,
+            ),
+            unet_decoder=dict(
+                embed_dims=embed_dims[:-shallow_decode],
+                num_waypoints=num_waypoints,
             ),
         ),
         
-        
+        # pretrained='runwayml/stable-diffusion-v1-5',
+        # pipeline_name='StableDiffusionControlPipeline',
+        # checkpoint=ckpt_2d,
+        # with_ema=with_ema,
+        # weight_path=weight_path,
     ),
     losses=dict(
         occupancy_flow_map_loss=dict(

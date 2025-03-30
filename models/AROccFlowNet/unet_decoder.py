@@ -94,6 +94,7 @@ class UNetDecoder(nn.Module):
         # self.occluded_occupancy_map_decoder = nn.Conv2d(self.embed_dims[0], 1, kernel_size=3, padding='same')
         self.observed_occupancy_map_decoder = nn.Conv2d(self.embed_dims[0]//2, 1, kernel_size=3, padding='same')
         self.flow_map_decoder = nn.Conv2d(self.embed_dims[0]//2, 2, kernel_size=3, padding='same')
+    
     def forward(self, x, features):
         """
         x: (b, t, d, h//16, w//16) - bottleneck features.

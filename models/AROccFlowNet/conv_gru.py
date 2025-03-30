@@ -62,7 +62,7 @@ class ConvGRUCell(nn.Module):
         return h_new
     
     
-class MemoryConvGRU(nn.Module):
+class ConvGRU(nn.Module):
     """
     Multi-layer ConvGRU that processes exactly ONE timestep per forward() call.
     Follows a similar style to the TimeSeriesMemoryGRU you provided.
@@ -156,9 +156,9 @@ class MemoryConvGRU(nn.Module):
             new_hidden_list.append(h_new)
         
         # 3) The top layer’s output => updated_memory
-        updated_memory = new_hidden_list[-1]
+        # updated_memory = new_hidden_list[-1]
         
         # 4) Stack new hidden states into shape (num_layers, B, C_hid, H, W)
         updated_hidden = new_hidden_list
         
-        return updated_memory, updated_hidden
+        return  updated_hidden

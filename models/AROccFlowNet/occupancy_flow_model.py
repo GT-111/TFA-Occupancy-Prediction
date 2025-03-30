@@ -6,7 +6,7 @@ from configs.utils.config import load_config
 from datasets.I24Motion.utils.generate_test_data import SampleModelInput
 from models.AROccFlowNet.positional_encoding import generate_3d_sinusoidal_embeddings, generate_2d_sin_pos_embedding, generate_1d_sin_pos_embedding
 from models.AROccFlowNet.deformable_transformer import DeformableTransformerDecoder, DeformableTransformerDecoderLayer
-from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor, UNetDecoder
+from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor
 from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.unet_decoder import UNetDecoder
 
@@ -138,7 +138,6 @@ class AROccFlowNet(nn.Module):
         # res_features = fused_features + marginal_features
         res_features = fused_features
         res_features = einops.rearrange(res_features, 'b t (h w) d -> b t d h w', h=query_height, w=query_width)
-        # occupancy_map, flow_map = self.unet_decoder(einops.repeat(multi_scale_features[-1], 'b d h w  -> b t d h w', t=self.num_waypoints), multi_scale_features)
         occupancy_map, flow_map = self.unet_decoder(res_features, multi_scale_features)
         
 

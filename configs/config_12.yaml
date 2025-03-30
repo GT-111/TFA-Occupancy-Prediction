@@ -21,8 +21,8 @@ preprocessing:
 
 occupancy_flow_map:
   grid_size:
-    x: 256
-    y: 256
+    x: 512
+    y: 96
 
 dataset_splits:
   train_ratio: 0.8

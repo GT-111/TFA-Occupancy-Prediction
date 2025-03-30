@@ -13,29 +13,29 @@ class FlowGuidedMultiHeadSelfAttention(nn.Module):
         self, config
     ):
         super().__init__()
-        self.dwc_pe = config.model.FlowGuidedMultiHeadSelfAttention.dwc_pe
-        self.n_head_channels = config.model.FlowGuidedMultiHeadSelfAttention.num_attention_head_channels
+        self.dwc_pe = config.dwc_pe
+        self.n_head_channels = config.num_attention_head_channels
         self.scale = self.n_head_channels ** -0.5
-        self.n_heads = config.model.FlowGuidedMultiHeadSelfAttention.num_attention_heads
-        self.q_h, self.q_w = config.model.FlowGuidedMultiHeadSelfAttention.query_size
-        self.kv_h, self.kv_w = config.model.FlowGuidedMultiHeadSelfAttention.key_value_size
+        self.n_heads = config.num_attention_heads
+        self.q_h, self.q_w = config.query_size
+        self.kv_h, self.kv_w = config.key_value_size
         self.nc = self.n_head_channels * self.n_heads# number of channels
-        self.n_groups = config.model.FlowGuidedMultiHeadSelfAttention.num_groups
+        self.n_groups = config.num_groups
         self.n_group_channels = self.nc // self.n_groups
         self.n_group_heads = self.n_heads // self.n_groups
-        self.use_pe = config.model.FlowGuidedMultiHeadSelfAttention.use_positional_encoding
-        self.fixed_pe = config.model.FlowGuidedMultiHeadSelfAttention.fixed_positional_encoding
-        self.no_off = config.model.FlowGuidedMultiHeadSelfAttention.no_offset
-        self.offset_range_factor = config.model.FlowGuidedMultiHeadSelfAttention.offset_range_factor
-        self.use_last_ref = config.model.FlowGuidedMultiHeadSelfAttention.use_last_ref
-        self.fg = config.model.FlowGuidedMultiHeadSelfAttention.fg
-        self.stage_idx = config.model.FlowGuidedMultiHeadSelfAttention.stage_idx
+        self.use_pe = config.use_positional_encoding
+        self.fixed_pe = config.fixed_positional_encoding
+        self.no_off = config.no_offset
+        self.offset_range_factor = config.offset_range_factor
+        self.use_last_ref = config.use_last_ref
+        self.fg = config.fg
+        self.stage_idx = config.stage_idx
         self.ref_res = None
-        self.stride = config.model.FlowGuidedMultiHeadSelfAttention.stride
-        self.proj_drop = config.model.FlowGuidedMultiHeadSelfAttention.proj_drop
-        self.attn_drop = config.model.FlowGuidedMultiHeadSelfAttention.attn_drop
-        self.in_dim = config.model.FlowGuidedMultiHeadSelfAttention.input_dimension
-        self.out_dim = config.model.FlowGuidedMultiHeadSelfAttention.output_dimension
+        self.stride = config.stride
+        self.proj_drop = config.proj_drop
+        self.attn_drop = config.attn_drop
+        self.in_dim = config.input_dimension
+        self.out_dim = config.output_dimension
         ksizes = [9, 7, 5, 3]
         kk = ksizes[self.stage_idx]
 
@@ -88,7 +88,7 @@ class FlowGuidedMultiHeadSelfAttention(nn.Module):
         ref_y, ref_x = torch.meshgrid(
             torch.arange(0, H_key), 
             torch.arange(0, W_key),
-            indexing="xy"
+            indexing="ij"
         )
         ref = torch.stack((ref_y, ref_x), -1)
         ref = ref.to(torch.float32)
@@ -97,7 +97,7 @@ class FlowGuidedMultiHeadSelfAttention(nn.Module):
         return ref
 
     def forward(self, x):
-        B, H, W,C = x.size()
+        B, H, W, C = x.size()
         x = x.permute(0,3,1,2) # channels as 2nd dim
         q = self.proj_q(x)
         offset = self._get_offset(q) # [B, H, W, 2]

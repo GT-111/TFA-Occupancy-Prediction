@@ -3,7 +3,7 @@ import torch
 import warnings
 import argparse
 # import model
-from models.AROccFlowNet.occupancy_flow_model_auto_regressive import AutoRegWrapper
+from models.AROccFlowNet.occupancy_flow_model_auto_regressive_three_scenes import AutoRegWrapper
 # import loss and metrics
 
 from evaluation.losses.occupancy_flow_map_loss import OccupancyFlowMapLoss
@@ -141,19 +141,25 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
         for batch_idx, data in loop:
             
             input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
-            # //[ ]Currently, only the current scene is being used
-            input_dict = input_dict['cur']
-            ground_truth_dict = ground_truth_dict['cur']
 
             # get the input
-            his_occupancy_map = input_dict['his/observed_occupancy_map']
+            prv_occupancy_map = input_dict['prv']['his/observed_occupancy_map']
+            cur_occupancy_map = input_dict['cur']['his/observed_occupancy_map']
+            nxt_occupancy_map = input_dict['nxt']['his/observed_occupancy_map']
             
             # get the ground truth
-            gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
-            gt_valid_mask = ground_truth_dict['pred/valid_mask']
+            gt_prv_occupancy_map = ground_truth_dict['prv']['pred/observed_occupancy_map']
+            gt_nxt_occupancy_map = ground_truth_dict['nxt']['pred/observed_occupancy_map']
+            gt_observed_occupancy_logits = ground_truth_dict['cur']['pred/observed_occupancy_map']
+            gt_valid_mask = ground_truth_dict['cur']['pred/valid_mask']
             gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
 
-            pred_observed_occupancy_logits = model.forward(his_occupancy_map, gt_observed_occupancy_logits, tf_prob=tf_prob, training=True)
+            pred_observed_occupancy_logits = model.forward(prv_occupancy_map=prv_occupancy_map,
+                                                           cur_occupancy_map=cur_occupancy_map,
+                                                           nxt_occupancy_map=nxt_occupancy_map,
+                                                           gt_prv_occupancy_map=gt_prv_occupancy_map,
+                                                           gt_nxt__occupancy_map=gt_nxt_occupancy_map,
+                                                           training=True)
 
             loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
 
@@ -194,21 +200,24 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                 
                 input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
                 # //[ ]Currently, only the current scene is being used
-                input_dict = input_dict['cur']
-                ground_truth_dict = ground_truth_dict['cur']
-
                 # get the input
-                his_occupancy_map = input_dict['his/observed_occupancy_map']
-                # add a slight noise to the input
+                prv_occupancy_map = input_dict['prv']['his/observed_occupancy_map']
+                cur_occupancy_map = input_dict['cur']['his/observed_occupancy_map']
+                nxt_occupancy_map = input_dict['nxt']['his/observed_occupancy_map']
                 
-
                 # get the ground truth
-                gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
-                gt_valid_mask = ground_truth_dict['pred/valid_mask']
+                gt_prv_occupancy_map = ground_truth_dict['prv']['pred/observed_occupancy_map']
+                gt_nxt_occupancy_map = ground_truth_dict['nxt']['pred/observed_occupancy_map']
+                gt_observed_occupancy_logits = ground_truth_dict['cur']['pred/observed_occupancy_map']
+                gt_valid_mask = ground_truth_dict['cur']['pred/valid_mask']
                 gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
 
-                
-                pred_observed_occupancy_logits = model.forward(his_occupancy_map, gt_observed_occupancy_logits, training=False)
+                pred_observed_occupancy_logits = model.forward(prv_occupancy_map=prv_occupancy_map,
+                                                           cur_occupancy_map=cur_occupancy_map,
+                                                           nxt_occupancy_map=nxt_occupancy_map,
+                                                           gt_prv_occupancy_map=gt_prv_occupancy_map,
+                                                           gt_nxt__occupancy_map=gt_nxt_occupancy_map,
+                                                           training=True)
 
                 loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
 
@@ -236,7 +245,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
 if __name__ == "__main__":
     # ============= Parse Argument =============
     parser = argparse.ArgumentParser(description="options")
-    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetAutoRegressive.py", help="config file")
+    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetAutoRegressiveThreeScenes.py", help="config file")
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)

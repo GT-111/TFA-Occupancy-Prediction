@@ -11,10 +11,10 @@ from models.OFMPNet.MultiHeadAttention import MultiHeadAttention
 class TrajEncoder(nn.Module):
     def __init__(self, config):
         super(TrajEncoder, self).__init__()
-        self.num_heads = config.model.TrajNetCrossAttention.TrajNet.att_heads
-        self.out_dim = config.model.TrajNetCrossAttention.TrajNet.out_dim
-        self.vector_feature_dim = config.model.TrajNetCrossAttention.TrajNet.vector_feature_dim
-        self.node_feature_dim = config.model.TrajNetCrossAttention.TrajNet.node_feature_dim
+        self.num_heads = config.att_heads
+        self.out_dim = config.out_dim
+        self.vector_feature_dim = config.vector_feature_dim
+        self.node_feature_dim = config.node_feature_dim
         
         self.node_feature = nn.Sequential(nn.Conv1d(self.node_feature_dim, 64, kernel_size=1), nn.ELU())
         self.node_attention = MultiHeadAttention(input_channels=(64,64,64), num_heads=self.num_heads, head_size=64, dropout=0.1, output_size=64*5)
@@ -63,15 +63,15 @@ class TrajNet(nn.Module):
     def __init__(self,config):
         super(TrajNet, self).__init__()
 
-        self.double_net = config.model.TrajNetCrossAttention.TrajNet.double_net
+        self.double_net = config.double_net
 
         
-        self.traj_encoder = TrajEncoder(config)
+        self.traj_encoder = TrajEncoder(config.TrajEncoder)
         # self.traj_encoder  = TrajEncoderLSTM(cfg['out_dim'])
-        self.no_attn = config.model.TrajNetCrossAttention.TrajNet.no_attention
+        self.no_attn = config.no_attention
 
-        self.out_dim = config.model.TrajNetCrossAttention.TrajNet.out_dim
-        self.att_heads = config.model.TrajNetCrossAttention.TrajNet.att_heads
+        self.out_dim = config.out_dim
+        self.att_heads = config.att_heads
 
         if not self.no_attn:
             if self.double_net:
@@ -189,16 +189,16 @@ class TrajNetCrossAttention(nn.Module):
     def __init__(self, config:easydict.EasyDict):
         super(TrajNetCrossAttention, self).__init__()
 
-        self.traj_net = TrajNet(config)
+        self.traj_net = TrajNet(config.TrajNet)
         
-        self.H, self.W = config.model.TrajNetCrossAttention.pic_size
-        self.pic_dim = config.model.TrajNetCrossAttention.pic_dim
+        self.H, self.W = config.pic_size
+        self.pic_dim = config.pic_dim
 
-        self.sep_actors = config.model.TrajNetCrossAttention.sep_actors
+        self.sep_actors = config.sep_actors
         
-        self.num_waypoints = config.task_config.num_waypoints
-        self.cross_attn_obs = nn.ModuleList([Cross_AttentionT(num_heads=config.model.TrajNetCrossAttention.TrajNet.CrossAttention.num_heads, 
-                                                              output_dim=self.pic_dim,key_dim=config.model.TrajNetCrossAttention.TrajNet.CrossAttention.key_dimension,
+        self.num_waypoints = config.num_waypoints
+        self.cross_attn_obs = nn.ModuleList([Cross_AttentionT(num_heads=config.CrossAttention.num_heads, 
+                                                              output_dim=self.pic_dim,key_dim=config.CrossAttention.key_dimension,
                                                               sep_actors=self.sep_actors) 
                                              for _ in range(self.num_waypoints)])
 

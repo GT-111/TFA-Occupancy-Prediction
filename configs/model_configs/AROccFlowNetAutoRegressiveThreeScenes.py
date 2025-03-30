@@ -14,12 +14,12 @@ from models.AROccFlowNet import conv_gru, unet_decoder
 # ============= Seed ===================
 random_seed = 42
 # ============= Path ===================
-project_name = 'AROccFlowNetAutoRegressiveS'
+project_name = 'AROccFlowNetAutoRegressiveThreeScenesS'
 exp_dir = './exp/'  # PATH TO YOUR EXPERIMENT FOLDER
 project_dir = os.path.join(exp_dir, project_name)
 # ============= Dataset Parameters=================
 dataset_config = load_config("configs/dataset_configs/I24Motion_config.py")
-backbone_config = load_config("configs/model_configs/AROccFlowNetOneStepS.py")
+backbone_config = load_config("configs/model_configs/AROccFlowNetOneStepThreeScenesS.py")
 backbone_model_config = backbone_config.models.aroccflownet
 
 occupancy_flow_map_config = dataset_config.occupancy_flow_map
@@ -110,7 +110,7 @@ config = dict(
             shuffle=False,
         ),
         test=dict(
-            batch_size=batch_size,
+            batch_size=1,
             num_workers=1,
             shuffle=False,
         ),
@@ -120,7 +120,7 @@ config = dict(
             num_waypoints=num_waypoints,
 
             backbone_model_config=backbone_model_config,
-            pretrained_backbone_path='/hdd/HetianGuo/MotionPrediction/OccupancyFLowPrediction/Occupancy-FLow-Prediction/exp/AROccFlowNetOneStepS/checkpoints/epoch_30.pth',
+            pretrained_backbone_path='/hdd/HetianGuo/MotionPrediction/OccupancyFLowPrediction/Occupancy-FLow-Prediction/exp/AROccFlowNetOneStepThreeScenesS/checkpoints/epoch_30.pth',
 
             memory_gru=dict(
                 hidden_channels=[hidden_dim, embed_dims[0]//2],

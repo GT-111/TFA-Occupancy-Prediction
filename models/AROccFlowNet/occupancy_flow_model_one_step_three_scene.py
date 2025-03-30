@@ -1,10 +1,13 @@
 import einops
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from configs.utils.config import load_config
 from datasets.I24Motion.utils.generate_test_data import SampleModelInput
+from models.AROccFlowNet.positional_encoding import generate_3d_sinusoidal_embeddings, generate_2d_sin_pos_embedding, generate_1d_sin_pos_embedding
 from models.AROccFlowNet.deformable_transformer import DeformableTransformerDecoder, DeformableTransformerDecoderLayer
-from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor
+from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor, UNetDecoder
+from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.unet_decoder import UNetDecoder2D
 
 def get_valid_ratio(mask):
@@ -29,7 +32,7 @@ def get_reference_points(spatial_shapes, valid_ratios, device):
     reference_points = reference_points[:, :, None] * valid_ratios[:, None]
     return reference_points
 
-class AROccFlowNetOneStep(nn.Module):
+class AROccFlowNetOneStepContext(nn.Module):
 
     def __init__(self, config):
         super().__init__()
@@ -55,7 +58,7 @@ class AROccFlowNetOneStep(nn.Module):
         self.num_layers = config.num_layers
 
         deformable_transformer_decoder_layer = DeformableTransformerDecoderLayer(
-            d_model= self.decoder_dim, d_ffn=self.hidden_dim, dropout=0.1, activation='relu', n_levels=len(self.embed_dims[:-self.shallow_decode]), n_heads=4, n_points=4
+            d_model= self.decoder_dim, d_ffn=self.hidden_dim, dropout=0.1, activation='relu', n_levels=len(self.embed_dims[:-self.shallow_decode]) * 3, n_heads=4, n_points=4
         )
         self.deformable_transformer_decoder = DeformableTransformerDecoder(decoder_layer=deformable_transformer_decoder_layer, num_layers=self.num_layers)
         self.projection_list = nn.ModuleList([
@@ -71,30 +74,38 @@ class AROccFlowNetOneStep(nn.Module):
         
         self.unet_decoder = UNetDecoder2D(config.unet_decoder.embed_dims)
         self.occupancy_map_decoder = nn.Sequential(nn.Conv2d(self.embed_dims[0]//2, 1, kernel_size=3, padding=1))
-    def forward(self, his_occupancy_map, features_only=False):
+    def forward(self, prv_occupancy_map, cur_occupancy_map, nxt_occupancy_map, features_only=False):
         # //TODO: Modity the input to take his_occupancy_map, his_flow_map, his_observed_agent_features, his_valid_mask, agent_types
-        device = his_occupancy_map.device
-        cur_occupancy_map = his_occupancy_map
+        device = cur_occupancy_map.device
         batch_size, height, width, num_his_points, _ = cur_occupancy_map.shape
+        prv_multi_scale_features = self.multi_scale_feature_map_encoder.forward(occupancy_map=prv_occupancy_map)
+        cur_multi_scale_features = self.multi_scale_feature_map_encoder.forward(occupancy_map=cur_occupancy_map)
+        nxt_multi_scale_features = self.multi_scale_feature_map_encoder.forward(occupancy_map=nxt_occupancy_map)
+
         
-        multi_scale_features = self.multi_scale_feature_map_encoder.forward(occupancy_map=cur_occupancy_map)
         feature_flatten_list = []
         mask_flatten = []
         valid_ratios_list = []
         input_spatial_shapes = []
         # Initialize the memory
         
-        for conv, feature in zip(self.conv_list, multi_scale_features):
-            feature = conv(feature)
-            _, _,feature_map_height, feature_map_width = feature.shape
-            input_spatial_shapes.append((feature_map_height, feature_map_width))
-            feature = einops.rearrange(feature, 'b c h w -> b (h w) c')
-            feature_flatten_list.append(feature)
-            mask = torch.zeros(batch_size, feature_map_height, feature_map_width, device=device, dtype=torch.bool)
-            valid_ratio = get_valid_ratio(mask)
-            valid_ratios_list.append(valid_ratio)
-            mask = einops.rearrange(mask, 'b h w -> b (h w)')
-            mask_flatten.append(mask)
+        def prapare_input(multi_scale_features):
+            for conv, feature in zip(self.conv_list, multi_scale_features):
+                feature = conv(feature)
+                _, _,feature_map_height, feature_map_width = feature.shape
+                input_spatial_shapes.append((feature_map_height, feature_map_width))
+                feature = einops.rearrange(feature, 'b c h w -> b (h w) c')
+                feature_flatten_list.append(feature)
+                mask = torch.zeros(batch_size, feature_map_height, feature_map_width, device=device, dtype=torch.bool)
+                valid_ratio = get_valid_ratio(mask)
+                valid_ratios_list.append(valid_ratio)
+                mask = einops.rearrange(mask, 'b h w -> b (h w)')
+                mask_flatten.append(mask)
+                
+        prapare_input(prv_multi_scale_features)
+        prapare_input(cur_multi_scale_features)
+        prapare_input(nxt_multi_scale_features)
+        
 
         valid_ratios = torch.stack(valid_ratios_list, 1)
         mask_flatten = torch.cat(mask_flatten, 1)
@@ -124,10 +135,10 @@ class AROccFlowNetOneStep(nn.Module):
         
 
         if features_only:
-            final_features = self.unet_decoder.forward(res_features, multi_scale_features, features_only=True)
+            final_features = self.unet_decoder.forward(res_features, cur_multi_scale_features, features_only=True)
             return final_features
         else:
-            final_features = self.unet_decoder.forward(res_features, multi_scale_features, features_only=False)
+            final_features = self.unet_decoder.forward(res_features, cur_multi_scale_features, features_only=False)
             occupancy_map = einops.rearrange(self.occupancy_map_decoder(final_features), 'b c h w -> b h w 1 c')
             return occupancy_map
 
@@ -137,7 +148,7 @@ if __name__ == '__main__':
     # ============= Load Configuration =============
     config = load_config('configs/model_configs/AROccFlowNetS.py')
     model_config = config.models
-    model = AROccFlowNetOneStep(model_config.aroccflownet).to(device)
+    model = AROccFlowNetOneStepContext(model_config.aroccflownet).to(device)
     dataset_config = config.dataset_config
     sample_data_generator = SampleModelInput(dataset_config)
     test_input = sample_data_generator.generate_sample_input(device=device)

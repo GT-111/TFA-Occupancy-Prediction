@@ -3,16 +3,17 @@ import torch
 import warnings
 import argparse
 # import model
-from models.AROccFlowNet.occupancy_flow_model_auto_regressive import AutoRegWrapper
+from models.AROccFlowNet.occupancy_flow_model_one_step_three_scene import AROccFlowNetOneStep
 # import loss and metrics
-
+from evaluation.losses.trajectory_loss import TrajectoryLoss
+from evaluation.metrics.trajectory_metrics import TrajectoryMetrics
 from evaluation.losses.occupancy_flow_map_loss import OccupancyFlowMapLoss
 from evaluation.metrics.occupancy_flow_map_metrics import OccupancyFlowMapMetrics
 # import training utils
 from tqdm import tqdm
 from utils.training_utils import load_checkpoint, save_checkpoint
 from datasets.I24Motion.utils.dataset_utils import get_dataloader
-from datasets.I24Motion.utils.training_utils import parse_data
+from datasets.I24Motion.utils.training_utils import parse_data, parse_outputs
 # import distributed training
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -23,7 +24,7 @@ from configs.utils.config import load_config
 # import tensorboard
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
-import numpy as np
+
 # warnings.filterwarnings("ignore")
 
 def ddp_setup(rank, world_size):
@@ -42,7 +43,7 @@ def setup(config, gpu_id, enable_ddp=True):
     """
     # //[ ] The model config need to be updated if the model is changed
     model_config = config.models
-    model = AutoRegWrapper(model_config.auto_regressive_predictor).to(gpu_id)
+    model = AROccFlowNetOneStep(model_config.aroccflownet).to(gpu_id)
     if enable_ddp:
         model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
 
@@ -86,8 +87,12 @@ def setup(config, gpu_id, enable_ddp=True):
     # Get the losses config
     config_losses = config.losses
     occupancy_flow_map_loss_config = config_losses.occupancy_flow_map_loss
-    occupancy_flow_map_loss = OccupancyFlowMapLoss(device=gpu_id, config=occupancy_flow_map_loss_config)
+    # trajectory_loss_config = config_losses.trajectory_loss
 
+    occupancy_flow_map_loss = OccupancyFlowMapLoss(device=gpu_id, config=occupancy_flow_map_loss_config)
+    # trajectory_loss = TrajectoryLoss(device=gpu_id, config=trajectory_loss_config)
+
+    # return model, optimizer, scheduler, occupancy_flow_map_loss, trajectory_loss
     return model, optimizer, scheduler, occupancy_flow_map_loss
 
 def model_training(gpu_id, world_size, config, enable_ddp=True):
@@ -128,35 +133,35 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
         # //NOTE In distributed mode, calling the set_epoch method at the beginning of each epoch before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs. Otherwise, the same ordering will be always used.
         if enable_ddp:
             train_dataloader.sampler.set_epoch(epoch)
-        
-        def get_teacher_forcing_prob(current_step, total_steps, p_start=0.4, p_end=0.0):
-                    fraction = min(current_step / total_steps, 1.0)
-                    p = p_start + fraction * (p_end - p_start)
-                    return p
-                
-        tf_prob = get_teacher_forcing_prob(epoch, max_epochs)
-        # print(f"Teacher forcing probability: {tf_prob}")
-        tf_prob = 0.0
+
         loop = tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, data in loop:
             
             input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
             # //[ ]Currently, only the current scene is being used
-            input_dict = input_dict['cur']
             ground_truth_dict = ground_truth_dict['cur']
 
             # get the input
-            his_occupancy_map = input_dict['his/observed_occupancy_map']
+            prv_occupancy_map = input_dict['prv']['his/observed_occupancy_map']
+            cur_occupancy_map = input_dict['cur']['his/observed_occupancy_map']
+            nxt_occupancy_map = input_dict['nxt']['his/observed_occupancy_map']
+           
             
             # get the ground truth
-            gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
+            gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map'][..., 0, :][..., None,:]
             gt_valid_mask = ground_truth_dict['pred/valid_mask']
-            gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
+            gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)[..., 0][..., None]
 
-            pred_observed_occupancy_logits = model.forward(his_occupancy_map, gt_observed_occupancy_logits, tf_prob=tf_prob, training=True)
+            pred_observed_occupancy_logits = model.forward(prv_occupancy_map=prv_occupancy_map, 
+                                                           cur_occupancy_map=cur_occupancy_map, 
+                                                           nxt_occupancy_map=nxt_occupancy_map,
+                                                           features_only=False)
 
             loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
+            
 
+
+            # TODO: merge the occupancy_flow_map_loss and trajectory_loss
             loss_value = loss_dic['observed_occupancy_cross_entropy']
             # backward pass
             optimizer.zero_grad()
@@ -194,29 +199,32 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                 
                 input_dict, ground_truth_dict = parse_data(data, gpu_id, config)
                 # //[ ]Currently, only the current scene is being used
-                input_dict = input_dict['cur']
+
                 ground_truth_dict = ground_truth_dict['cur']
 
                 # get the input
-                his_occupancy_map = input_dict['his/observed_occupancy_map']
-                # add a slight noise to the input
+                prv_occupancy_map = input_dict['prv']['his/observed_occupancy_map']
+                cur_occupancy_map = input_dict['cur']['his/observed_occupancy_map']
+                nxt_occupancy_map = input_dict['nxt']['his/observed_occupancy_map']
+            
                 
-
                 # get the ground truth
-                gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map']
+                gt_observed_occupancy_logits = ground_truth_dict['pred/observed_occupancy_map'][..., 0, :][..., None,:]
                 gt_valid_mask = ground_truth_dict['pred/valid_mask']
-                gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
+                gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)[..., 0][..., None]
 
-                
-                pred_observed_occupancy_logits = model.forward(his_occupancy_map, gt_observed_occupancy_logits, training=False)
+                pred_observed_occupancy_logits = model.forward(prv_occupancy_map=prv_occupancy_map, 
+                                                           cur_occupancy_map=cur_occupancy_map, 
+                                                           nxt_occupancy_map=nxt_occupancy_map,
+                                                           features_only=False)
 
                 loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
 
                 observed_occupancy_cross_entropy.append(loss_dic['observed_occupancy_cross_entropy'])
                 pred_observed_occupancy_logits = torch.sigmoid(pred_observed_occupancy_logits)
-                
+                # 'vehicles_observed_occupancy_auc': [],
+			    # 'vehicles_observed_occupancy_iou': [],
                 occupancy_flow_map_metrics_dict = occupancy_flow_map_metrics.compute_occupancy_metrics(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
-                # print(occupancy_flow_map_metrics_dict)
                 vehicles_observed_occupancy_auc.append(occupancy_flow_map_metrics_dict['vehicles_observed_occupancy_auc'])
                 vehicles_observed_occupancy_iou.append(occupancy_flow_map_metrics_dict['vehicles_observed_occupancy_iou'])
                 
@@ -225,6 +233,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             occupancy_flow_map_loss_res_dict = {'observed_occupancy_cross_entropy': torch.mean(torch.stack(observed_occupancy_cross_entropy))}
             if gpu_id == 0:
                 logger.add_scalars(main_tag="val_occupancy_flow_map_metrics", tag_scalar_dict=occupancy_flow_map_metrics_res_dict, global_step=global_step)
+                # logger.add_scalars(main_tag="val_trajectory_metrics", tag_scalar_dict=trajectory_metrics_res_dict, global_step=global_step)
                 logger.add_scalars(main_tag="val_occupancy_flow_map_loss", tag_scalar_dict=occupancy_flow_map_loss_res_dict, global_step=global_step)
 
         if gpu_id == 0:
@@ -236,7 +245,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
 if __name__ == "__main__":
     # ============= Parse Argument =============
     parser = argparse.ArgumentParser(description="options")
-    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetAutoRegressive.py", help="config file")
+    parser.add_argument("--config", type=str, default="configs/model_configs/AROccFlowNetOneStepThreeScenesS.py", help="config file")
     args = parser.parse_args()
     # ============= Load Configuration =============
     config = load_config(args.config)

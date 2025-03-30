@@ -177,7 +177,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             gt_valid_mask = ground_truth_dict['pred/valid_mask']
             gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)[..., 0][..., None]
 
-            pred_observed_occupancy_logits = model.forward(his_occupancy_map)
+            pred_observed_occupancy_logits = model.forward(his_occupancy_map, features_only=False)
 
             loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
             
@@ -234,7 +234,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                 gt_valid_mask = ground_truth_dict['pred/valid_mask']
                 gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)[..., 0][..., None]
 
-                pred_observed_occupancy_logits = model.forward(his_occupancy_map)
+                pred_observed_occupancy_logits = model.forward(his_occupancy_map, features_only=False)
 
                 loss_dic = occupancy_flow_map_loss.compute_occypancy_map_loss(pred_observed_occupancy_logits, gt_observed_occupancy_logits, gt_occupancy_flow_map_mask)
 
