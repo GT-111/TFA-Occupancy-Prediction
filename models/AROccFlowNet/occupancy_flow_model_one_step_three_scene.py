@@ -6,7 +6,7 @@ from configs.utils.config import load_config
 from datasets.I24Motion.utils.generate_test_data import SampleModelInput
 from models.AROccFlowNet.positional_encoding import generate_3d_sinusoidal_embeddings, generate_2d_sin_pos_embedding, generate_1d_sin_pos_embedding
 from models.AROccFlowNet.deformable_transformer import DeformableTransformerDecoder, DeformableTransformerDecoderLayer
-from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor, UNetDecoder
+from models.AROccFlowNet.convnext_encoder import ConvNeXtFeatureExtractor
 from models.AROccFlowNet.efficient_motion_predictor import MotionPredictor
 from models.AROccFlowNet.unet_decoder import UNetDecoder2D
 

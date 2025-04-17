@@ -1,4 +1,3 @@
-import easydict
 import torch
 from .SwinTransformerEncoder import SwinTransformerEncoder
 from .FlowGuidedMultiHeadSelfAttention import FlowGuidedMultiHeadSelfAttention
@@ -8,7 +7,7 @@ from .TrajNet import TrajNetCrossAttention
 
 
 class OFMPNet(torch.nn.Module):
-    def __init__(self,config:easydict.EasyDict):
+    def __init__(self,config):
 
         super(OFMPNet, self).__init__()
         self.config =  config
@@ -20,13 +19,12 @@ class OFMPNet(torch.nn.Module):
         self.decoder = Pyramid3DDecoder(config=config.Pyramid3DDecoder)
         self.num_waypoints = config.num_waypoints
     
-    def forward(self,occupancy_map, flow_map, road_map, obs_traj, occ_traj):
+    def forward(self, occupancy_map, flow_map, road_map, obs_traj, occ_traj):
         B, H , W, T, C = occupancy_map.size()
         occupancy_map = occupancy_map.reshape(B, H, W, T)
         
         res_list = self.encoder(occupancy_map=occupancy_map,flow_map=flow_map, road_map=road_map)
-        for res in res_list:
-            print(res.shape)
+
         q = res_list[-1]
         if self.fg_msa:
             res, pos, ref = self.fg_msa_layer(q)
@@ -37,7 +35,7 @@ class OFMPNet(torch.nn.Module):
         query = torch.repeat_interleave(torch.unsqueeze(q, dim=1),repeats=self.num_waypoints,axis=1)
         
         obs_value = self.trajnet_attn(query, obs_traj, occ_traj)
-        #// TODO: The pyramid decoder to be fixed
+
         res = self.decoder(obs_value, res_list)
         return res
 

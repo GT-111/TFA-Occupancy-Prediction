@@ -35,7 +35,7 @@ shallow_decode = 1
 num_machines = 1
 gpu_ids = [0,1]
 max_epochs = 30
-batch_size = 2
+batch_size = 8
 # ============= Optimizer Parameters =================
 optimizer_type = 'AdamW'
 optimizers_dic = dict(

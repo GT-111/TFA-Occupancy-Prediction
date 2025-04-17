@@ -10,7 +10,7 @@ from evaluation.metrics.occupancy_flow_map_metrics import OccupancyFlowMapMetric
 from tqdm import tqdm
 from utils.training_utils import load_checkpoint, save_checkpoint
 from datasets.I24Motion.utils.dataset_utils import get_dataloader
-from datasets.I24Motion.utils.training_utils import parse_data, parse_outputs
+from datasets.I24Motion.utils.training_utils import parse_data, parse_outputs_OFMPNet
 # import distributed training
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -151,7 +151,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
             gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
 
             outputs = model.forward(his_occupancy_map, his_flow_map, None, his_observed_agent_features, his_observed_agent_features)
-            pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs(outputs, train=True)
+            pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs_OFMPNet(outputs, train=True)
 
             occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(
                 pred_observed_occupancy_logits, 
@@ -210,8 +210,6 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                 his_flow_map = input_dict['his/flow_map'][:, : ,:, -1, :]  # only use the last time step for flow map
                 his_observed_agent_features = input_dict['his/observed_agent_features']
                 flow_origin_occupancy = input_dict['flow_origin_occupancy_map']
-                his_valid_mask = input_dict['his/valid_mask']
-                agent_types = input_dict['agent_types']
 
                 # get the ground truth
                 # [B, H, W, T ,1]
@@ -223,7 +221,7 @@ def model_training(gpu_id, world_size, config, enable_ddp=True):
                 gt_occupancy_flow_map_mask = (torch.sum(gt_valid_mask, dim=-2) > 0)
 
                 outputs = model.forward(his_occupancy_map, his_flow_map, None, his_observed_agent_features, his_observed_agent_features)
-                pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs(outputs, train=False)
+                pred_observed_occupancy_logits, pred_occluded_occupancy_logits, pred_flow_logits = parse_outputs_OFMPNet(outputs, train=False)
                 
                 occupancy_flow_map_loss_dict = occupancy_flow_map_loss.compute(
                     pred_observed_occupancy_logits, 
@@ -275,5 +273,5 @@ if __name__ == "__main__":
     os.environ["NCCL_P2P_DISABLE"] = "1"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     world_size = torch.cuda.device_count()
-    # mp.spawn(model_training, args=(world_size, config), nprocs=world_size)
-    model_training(0, world_size, config, enable_ddp=False)
+    mp.spawn(model_training, args=(world_size, config), nprocs=world_size)
+    # model_training(0, world_size, config, enable_ddp=False)
